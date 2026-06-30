@@ -29,7 +29,7 @@ autonomously. Companion to [`capcut-techniques.md`](capcut-techniques.md) (shot-
 | Cinematic look (letterbox/vignette/glow/grain) | ✅ `render/looks.py` |
 | Long-form → short-form | ✅ `forwrdcut short` (autoedit) |
 | Subject tracking | ✅ reframe track (for crop) |
-| **Templates (slot-fill, beat-timed)** | 🎯 **next — our EDP IS a template; build a registry** |
+| **Templates (slot-fill, beat-timed)** | ✅ `strategy/templates.py` — `beat_slideshow`, `feature_showcase` + `forwrdcut template` |
 | Photo/stills → cinematic motion + beat slideshow | ⏳ high social value, easy (we have zoom+beats) |
 | Camera shake / zoom-shake transition | ⏳ roadmap |
 | 2D→3D parallax | ⏳ needs depth estimation |

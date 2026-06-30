@@ -164,6 +164,21 @@ def cmd_short(args) -> int:
     return 0
 
 
+def cmd_template(args) -> int:
+    from .strategy.templates import render_template
+
+    cfg = load_config(args.config)
+    out = Path(args.out) if args.out else cfg.output_dir / f"{args.name}_{args.aspect}.mp4"
+    print(f"TEMPLATE {args.name}: {len(args.clips)} clips -> {args.aspect}")
+    res = render_template(cfg, args.name, args.clips, out, aspect=args.aspect,
+                          music_style=args.music_style, headlines=args.headline,
+                          cinematic=args.cinematic)
+    print("\n✓ Done")
+    for k, v in res.items():
+        print(f"  {k:12s}: {v}")
+    return 0
+
+
 def cmd_batch(args) -> int:
     from .strategy.batch import make_batch
     from .strategy import edp as edpmod
@@ -352,6 +367,18 @@ def build_parser() -> argparse.ArgumentParser:
                     help="disable beat-aligned cuts")
     sp.add_argument("--out", default=None)
     sp.set_defaults(func=cmd_short)
+
+    sp = sub.add_parser("template", help="fill a beat-timed template with your clips and render")
+    sp.add_argument("--name", required=True, choices=["beat_slideshow", "feature_showcase"])
+    sp.add_argument("--clips", nargs="+", required=True, help="clip paths to drop into the slots")
+    sp.add_argument("--aspect", default="9x16", choices=["9x16", "16x9", "1x1"])
+    sp.add_argument("--music-style", dest="music_style", default="driving",
+                    choices=["upbeat", "driving", "chill"])
+    sp.add_argument("--headline", action="append", default=[],
+                    help="callout per clip for feature_showcase (repeat; *word* = orange)")
+    sp.add_argument("--cinematic", action="store_true", help="apply letterbox + vignette look")
+    sp.add_argument("--out", default=None)
+    sp.set_defaults(func=cmd_template)
 
     sp = sub.add_parser("batch", help='"make me N TikToks" — pick best clips, render each')
     sp.add_argument("--n", default=3, type=int, help="how many clips to produce")
