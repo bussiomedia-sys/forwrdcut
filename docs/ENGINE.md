@@ -54,12 +54,28 @@ Plain JSON, the single input to the timeline assembler. Author it, validate it, 
 - `speed`: playback multiplier — `0.5` = slow-mo, `2.0` = fast. The velocity-edit primitive
   (compose with beat detection: slow a beat, snap-cut, speed the next). Sped segments are
   silent (music carries) and their word captions are auto-rescaled. Default `1.0`.
+- `shake`: `0..1` handheld camera jitter (sinusoidal x/y with auto crop headroom); composes
+  with `motion`/`emphasis`. The punchy "energy" beat. Default `0.0`.
+- `emphasis`: `true` to scale-pop on the segment's emphasized words (transcript-driven). Can
+  also be set top-level to apply to all segments.
 
 ### Overlays (designed graphics, composited in a final pass)
 - `callout` — big Inter-Black all-caps headline, white with one `*orange word*` (mark a
   **single** word with asterisks), heavy stroke, word-wrapped, `position` `center`/`lower`.
 - `cta` — orange pill button. `badge` — small brand/credibility chip. `stars` — rating row
   + text. `progress` — thin retention bar. Each takes `start`/`end` (absolute seconds) and `position`.
+
+### Cinematic looks (top-level, opt-in finishing pass — `render/looks.py`)
+- `cinematic: true` — convenience: 2.39:1 letterbox bars + a gentle vignette.
+- `letterbox: 2.39` (custom bar ratio), `vignette: true|0..1`, `glow: 0..1` (highlight bloom),
+  `grain: true|1..20` (film grain). Applied before the overlay pass, so text sits on top of bars.
+  None set → pass skipped entirely.
+
+### Templates (`strategy/templates.py`) — drop footage, ship
+A template is a parameterized, beat-timed EDP. `beat_slideshow` (each clip = a beat-timed slot)
+and `feature_showcase` (hook + a bold callout per beat). `render_template(cfg, name, clips, out,
+aspect=…, music_style=…, cinematic=…)` probes clips, fills the slots, and renders. CLI: `forwrdcut
+template --name beat_slideshow --clips … --aspect 9x16 [--cinematic]`.
 
 ## The measure-pass timing pattern (critical for VO + callouts)
 Overlay `start`/`end` are **absolute** seconds, but VO-beat durations depend on the synthesized
@@ -71,14 +87,17 @@ implementation, incl. the generated end card and brand-badge-until-end-card logi
 ## Capabilities map (source files)
 - **Analyze:** `analysis/scan.py` (library index), `scenes.py` (scene detect),
   `transcribe.py` (word-level Whisper), `audio.py` (silence/loudness), `scoring.py`
-  (hook/highlight scoring), `jumpcut.py` (dead-air/filler removal), `reframe_track.py` (subject track).
-- **Plan:** `strategy/edp.py` (schema/validate/save), `planner.py`, `batch.py`, `trends.py`, `llm.py`.
-- **Render:** `render/timeline.py` (assembler), `pipeline.py` (segment/VO render core),
-  `captions.py` + `caption_video.py` (animated captions), `graphics.py` (overlays/callouts),
-  `reframe.py`, `grade.py`, `music_gen.py` (procedural beds), `sfx.py`, `annotate.py` (hero callouts).
+  (hook/highlight scoring), `jumpcut.py` (dead-air/filler removal), `reframe_track.py` (subject track),
+  `beats.py` (beat grid/detection), `emphasis.py` (emphasis-word detection).
+- **Plan:** `strategy/edp.py` (schema/validate/save), `planner.py`, `autoedit.py` (one-call
+  autonomous edit), `templates.py` (beat-timed templates), `batch.py`, `trends.py`, `llm.py`.
+- **Render:** `render/timeline.py` (assembler), `pipeline.py` (segment/VO render core; eased
+  motion, speed, shake, emphasis pulses), `captions.py` + `caption_video.py` (animated captions),
+  `graphics.py` (overlays/callouts), `looks.py` (cinematic letterbox/vignette/glow/grain),
+  `reframe.py`, `grade.py`, `music_gen.py` (procedural beds), `sfx.py`, `annotate.py`.
 - **Audio:** `audio/tts.py` (pluggable Kokoro / ElevenLabs / macOS `say`; lexicon for brand words).
-- **Drive it:** `cli.py` (`forwrdcut scan|info|clips|transcribe|slice|auto`), `mcp/server.py`
-  (MCP tools for conversational agent control).
+- **Drive it:** `cli.py` (`forwrdcut scan|info|clips|transcribe|analyze|plan|auto|short|template|batch|slice`),
+  `mcp/server.py` (MCP tools for conversational agent control).
 
 ## Config (`config.toml`)
 Brand, paths, render target/encoder, caption style + safe zones + brand colors, color grade,

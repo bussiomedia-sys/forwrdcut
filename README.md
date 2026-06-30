@@ -36,9 +36,13 @@ it's open-sourced so anyone can run an agent that edits at a high bar.
 
 - Index & analyze footage: scene detection, word-level transcription, silence/loudness, hook &
   highlight scoring, auto jump-cuts (dead-air + filler removal), subject-tracked reframing.
-- Plan: rule-based + agent-authored EDPs with a strategy planner.
+- Plan: rule-based + agent-authored EDPs, a one-call **autonomous edit** (`forwrdcut short`:
+  raw clip → finished Short), and **beat-timed templates** (`forwrdcut template`).
 - Render: multi-segment timeline, smart reframe (16:9 / 9:16 / 4:5), animated word-synced
   captions, designed overlays/callouts, color grade, ducked procedural music, loudness norm.
+- Motion & rhythm: **eased zoom**, **velocity/speed ramps**, **camera shake**, **emphasis
+  scale-pops** on key words, **beat detection** + beat-aligned cuts.
+- Cinematic looks: letterbox bars, vignette, bloom/glow, film grain (opt-in finishing pass).
 - Voiceover: pluggable TTS (Kokoro local · ElevenLabs · macOS `say`) with a brand lexicon.
 - Drive it from Python, the `forwrdcut` CLI, or the **MCP server** for conversational control.
 

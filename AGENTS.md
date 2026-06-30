@@ -101,10 +101,13 @@ Full specs + safe zones in [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
 
 Drive everything through an **EDP** (Edit Decision Plan) — reviewable JSON, the single input
 to the renderer. Per-segment `voiceover` (Kokoro TTS, source auto-muted, captions word-synced),
-`caption: "auto"|"none"|{text}`, `reframe: "cover"|"blur_pad"|"smart"`, `motion`; top-level
+`caption: "auto"|"none"|{text}`, `reframe: "cover"|"blur_pad"|"smart"`, `motion` (eased zoom),
+`speed` (0.5x/2x velocity), `shake` (handheld), `emphasis` (scale-pop on key words); top-level
 `overlays` (`callout`, `cta`, `badge`, `stars`, `progress`), `music` (ducked), `grade`,
-`loudnorm`, `transition`. Full schema, the measure-pass timing pattern, and the callout/VO
-caption-suppression mechanics are in [`docs/ENGINE.md`](docs/ENGINE.md). Local-first (FFmpeg),
+`loudnorm`, `transition`, and cinematic looks (`cinematic`/`letterbox`/`vignette`/`glow`/`grain`).
+Shortcuts: `forwrdcut short` (one-call autonomous edit from a raw clip) and `forwrdcut template`
+(beat-timed `beat_slideshow`/`feature_showcase`). Full schema, the measure-pass timing pattern,
+and caption-suppression mechanics are in [`docs/ENGINE.md`](docs/ENGINE.md). Local-first (FFmpeg),
 non-destructive (sources never modified), reproducible (every render writes an `.edp.json`).
 
 ## 8. The done bar (QC checklist before you call it finished)
