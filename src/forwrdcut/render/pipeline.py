@@ -21,7 +21,8 @@ from .reframe import reframe_chain, tracked_chain
 
 
 def _motion_chain(motion: str | None, w: int, h: int, fps: int,
-                  pulses: list[float] | None = None, nframes: int | None = None) -> str:
+                  pulses: list[float] | None = None, nframes: int | None = None,
+                  shake: float = 0.0) -> str:
     """Leading-comma filter for a per-segment camera move on the WxH base.
     Pre-scales 2x then zoompan-samples back so the move stays sharp + smooth.
     Captions overlay AFTER this, so text never moves — only the footage does.
@@ -48,11 +49,14 @@ def _motion_chain(motion: str | None, w: int, h: int, fps: int,
             "punch":    "min(0.00300*on,0.08)",
         }
     base = drift.get(motion or "", None)
-    if base is None and not pulses:
+    shake = max(0.0, float(shake or 0.0))
+    if base is None and not pulses and shake <= 0:
         return ""
     parts = ["1.0"]
     if base is not None:
         parts.append(f"({base})")
+    if shake > 0 and base is None:
+        parts.append("0.06")                  # crop headroom so the shake has room to move
     if pulses:
         width = max(1.0, 0.10 * fps)          # ~100ms pop
         amp = 0.060                            # 6% scale punch
@@ -61,8 +65,13 @@ def _motion_chain(motion: str | None, w: int, h: int, fps: int,
         if bumps:
             parts.append(f"({bumps})")
     z = "min(" + "+".join(parts) + ",1.22)"
+    cx, cy = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
+    if shake > 0:
+        a = 8.0 + 30.0 * min(1.0, shake)      # jitter amplitude (2x-input px); ~handheld feel
+        cx = f"{cx}+{a:.1f}*sin(on*0.9)"
+        cy = f"{cy}+{a:.1f}*cos(on*1.13)"
     return (f",scale={w * 2}:{h * 2}:flags=bicubic,"
-            f"zoompan=z='{z}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"zoompan=z='{z}':d=1:x='{cx}':y='{cy}':"
             f"s={w}x{h}:fps={fps}")
 
 
@@ -102,7 +111,7 @@ def _build_caption_track(cfg, dur, tw, th, target_fps, words, caption_text, posi
 def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
                  words=None, caption_text=None, position="lower", reframe_mode=None,
                  caption_style=None, mute_audio=False, motion=None, emphasis_times=None,
-                 speed=1.0, faststart=True) -> dict:
+                 speed=1.0, shake=0.0, faststart=True) -> dict:
     clip_path = Path(clip_path)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -128,7 +137,7 @@ def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
     else:
         chain = reframe_chain(tw, th, mode)
     motion_fc = _motion_chain(motion, tw, th, target_fps, pulses=emphasis_times,
-                              nframes=int(out_dur * target_fps))
+                              nframes=int(out_dur * target_fps), shake=shake)
     g = grade_chain(cfg)
     gc = f",{g}" if g else ""
     base_chain = f"[0:v]{chain}{gc}{spd},fps={target_fps}{motion_fc}[base]"
@@ -182,18 +191,18 @@ def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
 def render_segment(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
                    words=None, caption_text=None, position="center", reframe_mode=None,
                    caption_style=None, mute_audio=False, motion=None, emphasis_times=None,
-                   speed=1.0) -> dict:
+                   speed=1.0, shake=0.0) -> dict:
     """Render one normalized, concat-safe segment (no sidecar, no faststart)."""
     return _render_core(clip_path, start, end, out_path, cfg=cfg, tw=tw, th=th,
                         target_fps=target_fps, words=words, caption_text=caption_text,
                         position=position, reframe_mode=reframe_mode,
                         caption_style=caption_style, mute_audio=mute_audio, motion=motion,
-                        emphasis_times=emphasis_times, speed=speed, faststart=False)
+                        emphasis_times=emphasis_times, speed=speed, shake=shake, faststart=False)
 
 
 def render_vo_segment(clip_path, start, vo_wav, words, out_path, *, cfg, tw, th,
                       target_fps, position="center", caption_style=None,
-                      reframe_mode=None, motion=None, emphasis_times=None) -> dict:
+                      reframe_mode=None, motion=None, emphasis_times=None, shake=0.0) -> dict:
     """Render a voiceover-driven segment: duration = VO length, captions word-synced
     to the VO, source muted, video freezes on its last frame if shorter than the VO."""
     clip_path, out_path, vo_wav = Path(clip_path), Path(out_path), Path(vo_wav)
@@ -221,7 +230,7 @@ def render_vo_segment(clip_path, start, vo_wav, words, out_path, *, cfg, tw, th,
     vo_idx = sum(1 for x in inputs if x == "-i") - 1
 
     motion_fc = _motion_chain(motion, tw, th, target_fps, pulses=emphasis_times,
-                              nframes=int(dur * target_fps))
+                              nframes=int(dur * target_fps), shake=shake)
     g = grade_chain(cfg)
     gc = f",{g}" if g else ""
     held = f"[0:v]{chain}{gc},fps={target_fps},tpad=stop_mode=clone:stop_duration={dur:.3f}{motion_fc}"

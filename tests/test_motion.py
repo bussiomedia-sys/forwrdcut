@@ -20,3 +20,13 @@ def test_linear_fallback_without_nframes():
 def test_emphasis_pulses_add_bumps():
     fc = _motion_chain(None, 1080, 1920, 30, pulses=[0.5, 1.5], nframes=90)
     assert fc.count("exp(") == 2   # one gaussian bump per emphasis time
+
+
+def test_shake_jitters_xy_and_adds_headroom():
+    fc = _motion_chain(None, 1080, 1920, 30, shake=0.5, nframes=90)
+    assert "sin(on" in fc and "cos(on" in fc   # x/y oscillation
+    assert "0.06" in fc                          # crop headroom so the shake has room
+
+
+def test_shake_alone_is_not_empty():
+    assert _motion_chain(None, 1080, 1920, 30, shake=0.3) != ""

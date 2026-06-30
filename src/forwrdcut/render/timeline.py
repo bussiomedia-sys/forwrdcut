@@ -147,7 +147,8 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
             render_vo_segment(seg["source"], seg["in"], vo, words, part, cfg=cfg,
                               tw=tw, th=th, target_fps=fps, position=position,
                               caption_style=cap_style, reframe_mode=seg.get("reframe"),
-                              motion=mtn, emphasis_times=emph)
+                              motion=mtn, emphasis_times=emph,
+                              shake=float(seg.get("shake", 0.0)))
         else:
             words, caption_text = _resolve_caption(cfg, seg)
             emph = emphasis_pulses(words, seg["in"], seg["out"]) if (emph_on and words) else None
@@ -155,7 +156,8 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
                            target_fps=fps, words=words, caption_text=caption_text,
                            position=position, reframe_mode=seg.get("reframe"),
                            caption_style=cap_style, mute_audio=mute, motion=mtn,
-                           emphasis_times=emph, speed=float(seg.get("speed", 1.0)))
+                           emphasis_times=emph, speed=float(seg.get("speed", 1.0)),
+                           shake=float(seg.get("shake", 0.0)))
         parts.append(part)
 
     cues = edp.get("sfx") or []
