@@ -72,8 +72,9 @@ Plain JSON, the single input to the timeline assembler. Author it, validate it, 
   None set → pass skipped entirely.
 
 ### Templates (`strategy/templates.py`) — drop footage, ship
-A template is a parameterized, beat-timed EDP. `beat_slideshow` (each clip = a beat-timed slot)
-and `feature_showcase` (hook + a bold callout per beat). `render_template(cfg, name, clips, out,
+A template is a parameterized, beat-timed EDP. `beat_slideshow` (each clip = a beat-timed slot),
+`feature_showcase` (hook + a bold callout per beat), and `photo_slideshow` (stills → Ken Burns
+slots with longer dwell + optional titles). `render_template(cfg, name, clips, out,
 aspect=…, music_style=…, cinematic=…)` probes clips, fills the slots, and renders. CLI: `forwrdcut
 template --name beat_slideshow --clips … --aspect 9x16 [--cinematic]`.
 

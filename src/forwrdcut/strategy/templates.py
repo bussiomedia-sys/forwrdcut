@@ -80,7 +80,36 @@ def feature_showcase(clips: list[dict], headlines: list[str], *, target: tuple[i
     return edp
 
 
-TEMPLATES = {"beat_slideshow": beat_slideshow, "feature_showcase": feature_showcase}
+def photo_slideshow(photos: list[dict], *, bpm: float, target: tuple[int, int], music_file: str,
+                    beats_per_photo: int = 4, titles: list[str] | None = None,
+                    look: dict | None = None, fps: int = 30) -> dict:
+    """Stills → a Ken Burns slideshow. Each photo dwells ``beats_per_photo`` beats (photos need
+    longer than video clips to register) with an alternating slow push/pull, optional title
+    callout per photo. ``photos`` = [{"path": str}]."""
+    slot = beats_per_photo * 60.0 / max(1.0, bpm)
+    titles = titles or []
+    segs, overlays, t = [], [], 0.0
+    for i, p in enumerate(photos):
+        segs.append({"source": p["path"], "in": 0.0, "out": round(slot, 3), "role": "seg",
+                     "reframe": "cover", "caption": "none",
+                     "motion": "zoom_in" if i % 2 == 0 else "zoom_out"})
+        if i < len(titles) and titles[i]:
+            overlays.append({"type": "callout", "text": titles[i], "position": "lower",
+                             "start": round(t + 0.2, 2), "end": round(t + slot - 0.2, 2)})
+        t = round(t + slot, 2)
+    edp = {"version": 1, "project": "tpl_photo_slideshow", "platform": "reels",
+           "goal": "Ken Burns photo slideshow from dropped stills",
+           "target": {"width": target[0], "height": target[1], "fps": fps},
+           "captions": {"mode": "auto", "style": "box-pop", "position": "lower"},
+           "auto_motion": False, "mute_source": True, "segments": segs, "overlays": overlays,
+           "sfx": [], "music": {"file": music_file, "gain": 0.18, "duck": False}, "loudnorm": True}
+    if look:
+        edp.update(look)
+    return edp
+
+
+TEMPLATES = {"beat_slideshow": beat_slideshow, "feature_showcase": feature_showcase,
+             "photo_slideshow": photo_slideshow}
 
 
 def render_template(cfg: Config, name: str, clip_paths: list[str], out_path: str | Path, *,
@@ -97,10 +126,13 @@ def render_template(cfg: Config, name: str, clip_paths: list[str], out_path: str
     target = ASPECTS.get(aspect, ASPECTS["9x16"])
     bed = ensure_beds(cfg.root / "assets" / "music").get(music_style)
     look = {"cinematic": True} if cinematic else None
+    bpm = STYLES.get(music_style, STYLES["driving"])["bpm"]
     if name == "feature_showcase":
         edp = feature_showcase(clips, headlines or [], target=target, music_file=str(bed), look=look)
+    elif name == "photo_slideshow":
+        edp = photo_slideshow(clips, bpm=bpm, target=target, music_file=str(bed),
+                              titles=headlines, look=look)
     else:
-        edp = beat_slideshow(clips, bpm=STYLES.get(music_style, STYLES["driving"])["bpm"],
-                             target=target, music_file=str(bed), look=look)
+        edp = beat_slideshow(clips, bpm=bpm, target=target, music_file=str(bed), look=look)
     edp["project"] = Path(out_path).stem
     return render_timeline(edp, out_path, cfg)

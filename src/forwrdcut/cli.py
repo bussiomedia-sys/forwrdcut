@@ -369,7 +369,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_short)
 
     sp = sub.add_parser("template", help="fill a beat-timed template with your clips and render")
-    sp.add_argument("--name", required=True, choices=["beat_slideshow", "feature_showcase"])
+    sp.add_argument("--name", required=True,
+                    choices=["beat_slideshow", "feature_showcase", "photo_slideshow"])
     sp.add_argument("--clips", nargs="+", required=True, help="clip paths to drop into the slots")
     sp.add_argument("--aspect", default="9x16", choices=["9x16", "16x9", "1x1"])
     sp.add_argument("--music-style", dest="music_style", default="driving",
