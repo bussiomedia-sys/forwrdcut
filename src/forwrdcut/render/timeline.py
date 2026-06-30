@@ -230,6 +230,19 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
         run(["-i", str(current), "-c", "copy", "-movflags", "+faststart", str(out_path)],
             desc="finalize")
 
+    # Cinematic finishing look (letterbox / vignette / glow / grain) — before overlays so
+    # text/badges sit on top of the bars. Skipped entirely when no look keys are set.
+    from .looks import build_look_graph
+    look = build_look_graph(edp)
+    if look:
+        venc = pick_video_encoder(rcfg.get("hw_encoder", "h264_videotoolbox"),
+                                  rcfg.get("sw_encoder", "libx264"))
+        ltmp = tmpdir / "_look.mp4"
+        run(["-i", str(out_path), "-filter_complex", look, "-map", "[vout]", "-map", "0:a?",
+             "-c:v", venc, "-b:v", str(rcfg.get("video_bitrate", "10M")), "-pix_fmt", "yuv420p",
+             "-c:a", "copy", "-movflags", "+faststart", str(ltmp)], desc="cinematic look")
+        ltmp.replace(out_path)
+
     # Designed graphic overlays (CTA / badge / stars / progress) — final pass on top.
     overlays = edp.get("overlays") or []
     if overlays:
