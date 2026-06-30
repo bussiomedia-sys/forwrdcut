@@ -6,6 +6,17 @@
 > platform it ships to** — scroll-stopping, tightly cut, unique, and so good a
 > stranger would screenshot it. Default to that standard without being asked.
 
+## 0. Mission (the north star)
+
+Make ForwrdCut the **best AI video editor in the world** — the one that produces edits
+indistinguishable from (and better than) the top creators and agencies, fully autonomously.
+The benchmark is not "a good automated cut." It is: *a stranger watches the output and assumes a
+world-class human editor made it.* We out-execute manual tools like CapCut not by copying their
+button surface, but by doing the entire edit — understanding, decisions, craft — with taste and
+zero busywork. Every change to this project should move a real edit measurably closer to that bar.
+When you implement something, ask: "does this make the output more jaw-dropping, or just more
+featureful?" Ship the former. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the path.
+
 This file is the editor's standing brain. Read it first, every session. Depth lives in
 [`docs/EDITING_PLAYBOOK.md`](docs/EDITING_PLAYBOOK.md) (craft),
 [`docs/PLATFORMS.md`](docs/PLATFORMS.md) (per-platform specs), and
