@@ -17,6 +17,7 @@ from ..config import Config, load_config
 from ..media.ffmpeg import pick_video_encoder, run
 from ..media.ffprobe import probe
 from .pipeline import render_segment, render_vo_segment
+from ..analysis.emphasis import emphasis_pulses
 
 
 def _resolve_caption(cfg: Config, seg: dict):
@@ -119,6 +120,8 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
         part = tmpdir / f"seg_{i:03d}.mp4"
         default_mtn = ("zoom_in" if i % 2 == 0 else "zoom_out") if auto_motion else None
         mtn = seg.get("motion", default_mtn)
+        # Emphasis-aware dynamics: punch on the important words (opt-in per EDP/segment).
+        emph_on = seg.get("emphasis", edp.get("emphasis", False))
         if seg.get("voiceover"):
             from ..audio.tts import synthesize
             from ..analysis.transcribe import transcribe
@@ -135,19 +138,24 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
                 words = transcribe(vo, cfg)["words"]
                 wj.write_text(json.dumps(words))
             words = _normalize_caption_words(words)
+            # emphasis from the VO words (relative to the VO start), before any suppression
+            emph = emphasis_pulses(words, 0.0, 1e9) if emph_on else None
             # caption:"none" suppresses the word-synced VO captions (e.g. when a big
             # designed callout overlay carries the on-screen text instead).
             if seg.get("caption") == "none":
                 words = []
             render_vo_segment(seg["source"], seg["in"], vo, words, part, cfg=cfg,
                               tw=tw, th=th, target_fps=fps, position=position,
-                              caption_style=cap_style, reframe_mode=seg.get("reframe"), motion=mtn)
+                              caption_style=cap_style, reframe_mode=seg.get("reframe"),
+                              motion=mtn, emphasis_times=emph)
         else:
             words, caption_text = _resolve_caption(cfg, seg)
+            emph = emphasis_pulses(words, seg["in"], seg["out"]) if (emph_on and words) else None
             render_segment(seg["source"], seg["in"], seg["out"], part, cfg=cfg, tw=tw, th=th,
                            target_fps=fps, words=words, caption_text=caption_text,
                            position=position, reframe_mode=seg.get("reframe"),
-                           caption_style=cap_style, mute_audio=mute, motion=mtn)
+                           caption_style=cap_style, mute_audio=mute, motion=mtn,
+                           emphasis_times=emph)
         parts.append(part)
 
     cues = edp.get("sfx") or []

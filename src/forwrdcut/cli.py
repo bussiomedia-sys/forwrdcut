@@ -145,6 +145,25 @@ def cmd_auto(args) -> int:
     return 0
 
 
+def cmd_short(args) -> int:
+    from .strategy.autoedit import autoedit
+
+    cfg = load_config(args.config)
+    target = {"9x16": {"width": 1080, "height": 1920, "fps": 30},
+              "16x9": {"width": 1920, "height": 1080, "fps": 30},
+              "1x1":  {"width": 1080, "height": 1080, "fps": 30}}[args.aspect]
+    out = (Path(args.out) if args.out
+           else cfg.output_dir / f"{Path(args.clip).stem}_short_{args.aspect}.mp4")
+    print(f"SHORT (autonomous): {Path(args.clip).name} -> {args.platform} {args.aspect}")
+    res = autoedit(cfg, args.clip, out, platform=args.platform, target_seconds=args.seconds,
+                   music_style=args.music_style, target=target, reframe=args.reframe,
+                   beat_sync=not args.no_beat_sync)
+    print("\n✓ Done")
+    for k, v in res.items():
+        print(f"  {k:12s}: {v}")
+    return 0
+
+
 def cmd_batch(args) -> int:
     from .strategy.batch import make_batch
     from .strategy import edp as edpmod
@@ -320,6 +339,19 @@ def build_parser() -> argparse.ArgumentParser:
     _plan_args(sp)
     sp.add_argument("--preview", action="store_true", help="fast low-res render")
     sp.set_defaults(func=cmd_auto)
+
+    sp = sub.add_parser("short", help="autonomous one-call edit: raw clip -> finished Short")
+    sp.add_argument("--clip", required=True)
+    sp.add_argument("--platform", default="tiktok", choices=["tiktok", "reels", "shorts", "youtube"])
+    sp.add_argument("--seconds", default=24.0, type=float, help="target length")
+    sp.add_argument("--aspect", default="9x16", choices=["9x16", "16x9", "1x1"])
+    sp.add_argument("--music-style", dest="music_style", default="driving",
+                    choices=["upbeat", "driving", "chill"])
+    sp.add_argument("--reframe", default="cover", choices=["cover", "blur_pad", "smart"])
+    sp.add_argument("--no-beat-sync", dest="no_beat_sync", action="store_true",
+                    help="disable beat-aligned cuts")
+    sp.add_argument("--out", default=None)
+    sp.set_defaults(func=cmd_short)
 
     sp = sub.add_parser("batch", help='"make me N TikToks" — pick best clips, render each')
     sp.add_argument("--n", default=3, type=int, help="how many clips to produce")

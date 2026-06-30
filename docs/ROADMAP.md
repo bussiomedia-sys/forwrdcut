@@ -26,14 +26,14 @@ beats matching features.
 ## The path (prioritized by "wow per unit effort")
 
 ### Tier 1 — the moves that make output jaw-dropping
-- [ ] **Beat-synced cutting.** Detect music beats/onsets; snap cuts and zoom-punches to the beat.
-      This single thing is what makes an edit *feel* professionally cut. Highest wow.
-- [ ] **One-call autonomous masterpiece.** Strengthen `auto` into a killer default on arbitrary raw
-      input: transcribe → hook-detect → jump-cut → highlight-select → reframe → caption → beat-synced
-      music → grade → render, with the taste rules enforced. The "drop in a raw clip, get a great
-      Short" demo that sells the project.
-- [ ] **Emphasis-aware dynamics.** Punch-in / speed-ramp / scale-pop on the emphasized word or the
-      payoff beat (driven by transcript + loudness). The signature modern-edit feel.
+- [x] **Beat detection + beat-aligned cuts.** `analysis/beats.py` (exact grids from known-BPM beds +
+      an onset/autocorrelation detector for arbitrary audio); `autoedit` nudges cut points onto the
+      beat grid. Next: target beat-multiple segment durations so more cuts land on the beat.
+- [x] **One-call autonomous edit.** `strategy/autoedit.py` + `forwrdcut short`: transcribe →
+      hook-first jump-cut → reframe → word-synced captions → emphasis punches → beat-aligned cuts →
+      ducked procedural music → loudnorm → render. Verified end-to-end (raw clip → finished Short).
+- [x] **Emphasis-aware dynamics.** `analysis/emphasis.py` + render core: scale-pop punch on the
+      emphasized word (transcript-driven), composed with the slow push. Next: optional speed-ramp.
 
 ### Tier 2 — reach & polish
 - [ ] **Multilingual captions + translation** (Whisper translate) — autosubtitle in N languages.

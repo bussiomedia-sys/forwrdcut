@@ -168,7 +168,7 @@ def render_segment(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
 
 def render_vo_segment(clip_path, start, vo_wav, words, out_path, *, cfg, tw, th,
                       target_fps, position="center", caption_style=None,
-                      reframe_mode=None, motion=None) -> dict:
+                      reframe_mode=None, motion=None, emphasis_times=None) -> dict:
     """Render a voiceover-driven segment: duration = VO length, captions word-synced
     to the VO, source muted, video freezes on its last frame if shorter than the VO."""
     clip_path, out_path, vo_wav = Path(clip_path), Path(out_path), Path(vo_wav)
@@ -195,7 +195,7 @@ def render_vo_segment(clip_path, start, vo_wav, words, out_path, *, cfg, tw, th,
     inputs += ["-i", str(vo_wav)]
     vo_idx = sum(1 for x in inputs if x == "-i") - 1
 
-    motion_fc = _motion_chain(motion, tw, th, target_fps)
+    motion_fc = _motion_chain(motion, tw, th, target_fps, pulses=emphasis_times)
     g = grade_chain(cfg)
     gc = f",{g}" if g else ""
     held = f"[0:v]{chain}{gc},fps={target_fps},tpad=stop_mode=clone:stop_duration={dur:.3f}{motion_fc}"
