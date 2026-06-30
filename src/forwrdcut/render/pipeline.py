@@ -20,6 +20,14 @@ from .grade import grade_chain
 from .reframe import reframe_chain, tracked_chain
 
 
+_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".gif"}
+
+
+def _is_image(path) -> bool:
+    """A still-image source (slideshow slot) vs a video clip."""
+    return Path(path).suffix.lower() in _IMAGE_EXTS
+
+
 def _motion_chain(motion: str | None, w: int, h: int, fps: int,
                   pulses: list[float] | None = None, nframes: int | None = None,
                   shake: float = 0.0) -> str:
@@ -116,21 +124,28 @@ def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    is_img = _is_image(clip_path)
     info = probe(clip_path)
     start = max(0.0, float(start))
-    end = min(float(end), info.duration) if info.duration else float(end)
-    dur = max(0.05, end - start)
+    if is_img:
+        # still image -> a Ken Burns slot: loop for the requested length, default to a slow
+        # push so it isn't static; speed/seek don't apply to a single frame.
+        dur = max(0.05, float(end) - start)
+        speed, motion = 1.0, (motion or "zoom_in")
+    else:
+        end = min(float(end), info.duration) if info.duration else float(end)
+        dur = max(0.05, end - start)
+        speed = max(0.1, float(speed or 1.0))
     # Speed / velocity: <1 = slow-mo, >1 = fast. We read `dur` of source and re-time it to
     # out_dur = dur/speed. speed==1.0 leaves the path byte-identical to before. Sped segments
     # are silent (music carries) to avoid pitch-shift; word captions are rescaled to match.
-    speed = max(0.1, float(speed or 1.0))
     sped = abs(speed - 1.0) > 1e-3
     out_dur = dur / speed
     spd = f",setpts=PTS/{speed:.4f}" if sped else ""
 
     rcfg = cfg.render
     mode = reframe_mode or rcfg.get("reframe_mode", "cover")
-    if mode == "smart":
+    if mode == "smart" and not is_img:
         from ..analysis.reframe_track import compute_crop_plan
         plan = compute_crop_plan(cfg, clip_path, start, end, tw, th)
         chain = tracked_chain(plan) if plan else reframe_chain(tw, th, "cover")
@@ -143,7 +158,10 @@ def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
     base_chain = f"[0:v]{chain}{gc}{spd},fps={target_fps}{motion_fc}[base]"
 
     style = caption_style or cfg.captions.get("style", "bold-pop")
-    inputs = ["-ss", fmt_time(start), "-t", fmt_time(dur), "-i", str(clip_path)]
+    if is_img:
+        inputs = ["-loop", "1", "-t", fmt_time(out_dur), "-i", str(clip_path)]
+    else:
+        inputs = ["-ss", fmt_time(start), "-t", fmt_time(dur), "-i", str(clip_path)]
     cap_words = words
     if sped and words:   # remap caption word timings onto the re-timed clip
         cap_words = [{**w, "start": w["start"] / speed, "end": w["end"] / speed} for w in words]
