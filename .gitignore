@@ -11,13 +11,15 @@ venv/
 .ruff_cache/
 
 # Models (download separately — see docs/ENGINE.md). Large binaries, not for git.
-models/
+# Leading slash = repo root only, so these never match same-named CODE packages
+# nested under src/ (e.g. src/forwrdcut/media/ is the ffmpeg/ffprobe wrappers).
+/models/
 
 # Working data — never commit footage, renders, caches, or analysis output
-media/
-cache/
-renders/
-outputs/
+/media/
+/cache/
+/renders/
+/outputs/
 *.mp4
 *.mov
 *.MOV
