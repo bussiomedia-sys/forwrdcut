@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Models (download separately — see docs/ENGINE.md). Large binaries, not for git.
+models/
+
+# Working data — never commit footage, renders, caches, or analysis output
+media/
+cache/
+renders/
+outputs/
+*.mp4
+*.mov
+*.MOV
+*.MP4
+*.wav
+!assets/music/*.wav
+!assets/sfx/*.wav
+
+# Secrets / local config
+.env
+.env.*
+*.local.toml
+secrets.*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp

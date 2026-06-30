@@ -1,0 +1,267 @@
+"""Multi-segment timeline assembler: render an Edit Decision Plan to a video.
+
+Each segment is rendered to a normalized, concat-safe intermediate (same res,
+fps, codec, 48k stereo audio), then the segments are concatenated. Stream-copy
+concat is tried first (fast, lossless); on any mismatch it falls back to a
+filter `concat` re-encode.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+from ..config import Config, load_config
+from ..media.ffmpeg import pick_video_encoder, run
+from ..media.ffprobe import probe
+from .pipeline import render_segment, render_vo_segment
+
+
+def _resolve_caption(cfg: Config, seg: dict):
+    """Return (words, caption_text) for a segment's caption directive."""
+    cap = seg.get("caption", "auto")
+    if cap == "auto":
+        from ..analysis.transcribe import transcribe_cached, words_in_range
+        tr = transcribe_cached(cfg, seg["source"])
+        return _normalize_caption_words(words_in_range(tr["words"], seg["in"], seg["out"])), None
+    if isinstance(cap, dict) and cap.get("text"):
+        return None, cap["text"]
+    if isinstance(cap, str) and cap not in ("auto", "none"):
+        return None, cap
+    return None, None
+
+
+# Brand display spellings — Whisper mishears these; force the on-screen brand form.
+_BRAND_CAPTION = {
+    "catty": "Caddy", "caddy": "Caddy", "quarketti": "Court Caddy",
+    "ranger": "Ranger", "rangers": "Rangers",
+    "forward": "FORWRD", "forwrd": "FORWRD",
+}
+
+
+def _normalize_caption_words(words: list[dict]) -> list[dict]:
+    """Re-join words the TTS lexicon split (e.g. spoken "pickle ball" -> caption
+    "pickleball") and apply brand display spellings (Court Caddy, FORWRD)."""
+    import re
+
+    def base(w: str) -> str:
+        return re.sub(r"[^a-z]", "", w.lower())
+
+    def trail(w: str) -> str:
+        m = re.search(r"[.,!?]+$", w)
+        return m.group(0) if m else ""
+
+    out, i, n = [], 0, len(words)
+    while i < n:
+        w = words[i]
+        if i + 1 < n and base(w["word"]) == "pickle" and base(words[i + 1]["word"]) == "ball":
+            nxt = words[i + 1]
+            out.append({"start": w["start"], "end": nxt["end"],
+                        "word": "pickleball" + trail(nxt["word"])})
+            i += 2
+        elif i + 1 < n and base(w["word"]) == "forward" and base(words[i + 1]["word"]) == "co":
+            # spoken "forward dot co" -> brand spelling on screen
+            nxt = words[i + 1]
+            out.append({"start": w["start"], "end": nxt["end"], "word": "FORWRD.CO"})
+            i += 2
+        elif i + 1 < n and base(w["word"]) in ("court", "core") and base(words[i + 1]["word"]) in ("catty", "caddy", "kitty"):
+            # Whisper mishears "Court Caddy" as "court catty / core caddy" — force the brand spelling
+            nxt = words[i + 1]
+            out.append({"start": w["start"], "end": nxt["end"],
+                        "word": "Court Caddy" + trail(nxt["word"])})
+            i += 2
+        elif i + 1 < n and words[i + 1]["word"].startswith("-") and any(c.isalnum() for c in words[i + 1]["word"]):
+            # rejoin hyphenated compounds Whisper splits: "30"+"-day", "money"+"-back", "pre"+"-order"
+            nxt = words[i + 1]
+            out.append({"start": w["start"], "end": nxt["end"], "word": w["word"] + nxt["word"]})
+            i += 2
+        else:
+            out.append(w)
+            i += 1
+    fixed = []
+    for w in out:
+        b = base(w["word"])
+        if b in _BRAND_CAPTION:
+            fixed.append({**w, "word": _BRAND_CAPTION[b] + trail(w["word"])})
+        else:
+            fixed.append(w)
+    return fixed
+
+
+def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
+                    *, preview: bool = False) -> dict:
+    cfg = cfg or load_config()
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    rcfg = cfg.render
+    tgt = edp.get("target", {})
+
+    if preview:
+        tw, th = int(rcfg.get("preview_width", 540)), int(rcfg.get("preview_height", 960))
+    else:
+        tw = int(tgt.get("width", rcfg.get("target_width", 1080)))
+        th = int(tgt.get("height", rcfg.get("target_height", 1920)))
+    fps = int(tgt.get("fps") or rcfg.get("fps") or 30) or 30
+    position = edp.get("captions", {}).get("position", "center")
+    cap_style = edp.get("captions", {}).get("style")
+    mute = bool(edp.get("mute_source", False))
+
+    voice = edp.get("voice")
+    # Creative default: give every shot subtle life (alternating slow push in/out)
+    # unless the EDP/segment opts out. Keeps static talking heads + b-roll "sticky".
+    auto_motion = edp.get("auto_motion", True)
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="forwrdcut_tl_"))
+    parts: list[Path] = []
+    for i, seg in enumerate(edp["segments"]):
+        part = tmpdir / f"seg_{i:03d}.mp4"
+        default_mtn = ("zoom_in" if i % 2 == 0 else "zoom_out") if auto_motion else None
+        mtn = seg.get("motion", default_mtn)
+        if seg.get("voiceover"):
+            from ..audio.tts import synthesize
+            from ..analysis.transcribe import transcribe
+            # cache VO + word timings by (voice, line) so 9:16 / 4:5 reuse them
+            key = hashlib.sha1(f"{voice}|{seg['voiceover']}".encode()).hexdigest()[:16]
+            vocache = cfg.cache_dir / "vo"
+            vocache.mkdir(parents=True, exist_ok=True)
+            vo, wj = vocache / f"{key}.wav", vocache / f"{key}.json"
+            if not vo.exists():
+                synthesize(seg["voiceover"], vo, cfg=cfg, voice=voice)
+            if wj.exists():
+                words = json.loads(wj.read_text())
+            else:
+                words = transcribe(vo, cfg)["words"]
+                wj.write_text(json.dumps(words))
+            words = _normalize_caption_words(words)
+            # caption:"none" suppresses the word-synced VO captions (e.g. when a big
+            # designed callout overlay carries the on-screen text instead).
+            if seg.get("caption") == "none":
+                words = []
+            render_vo_segment(seg["source"], seg["in"], vo, words, part, cfg=cfg,
+                              tw=tw, th=th, target_fps=fps, position=position,
+                              caption_style=cap_style, reframe_mode=seg.get("reframe"), motion=mtn)
+        else:
+            words, caption_text = _resolve_caption(cfg, seg)
+            render_segment(seg["source"], seg["in"], seg["out"], part, cfg=cfg, tw=tw, th=th,
+                           target_fps=fps, words=words, caption_text=caption_text,
+                           position=position, reframe_mode=seg.get("reframe"),
+                           caption_style=cap_style, mute_audio=mute, motion=mtn)
+        parts.append(part)
+
+    cues = edp.get("sfx") or []
+    do_sfx = bool(cues) and bool(cfg.data.get("sfx", {}).get("enabled", True))
+    music = edp.get("music") or {}
+    do_music = bool(music.get("file")) and Path(music["file"]).exists()
+    concat_out = tmpdir / "_concat.mp4"
+
+    # Optional crossfade/dissolve transitions (xfade). Default is hard cuts.
+    _TRANS_ALIAS = {"crossfade": "fade", "dissolve": "fade"}
+    xtype = _TRANS_ALIAS.get(edp.get("transition"), edp.get("transition"))
+    xdur = float(edp.get("transition_duration", 0.4))
+    if xtype and xtype not in ("cut", "none") and len(parts) > 1:
+        durs = [probe(p).duration for p in parts]
+        venc = pick_video_encoder(rcfg.get("hw_encoder", "h264_videotoolbox"),
+                                  rcfg.get("sw_encoder", "libx264"))
+        args = []
+        for p in parts:
+            args += ["-i", str(p)]
+        chain, vlab, alab, acc = [], "0:v", "0:a", durs[0]
+        for i in range(1, len(parts)):
+            off = max(0.0, acc - xdur)
+            v2, a2 = f"vx{i}", f"ax{i}"
+            chain.append(f"[{vlab}][{i}:v]xfade=transition={xtype}:duration={xdur}:offset={off:.3f}[{v2}]")
+            chain.append(f"[{alab}][{i}:a]acrossfade=d={xdur}[{a2}]")
+            vlab, alab = v2, a2
+            acc += durs[i] - xdur
+        args += ["-filter_complex", ";".join(chain), "-map", f"[{vlab}]", "-map", f"[{alab}]",
+                 "-c:v", venc, "-b:v", str(rcfg.get("video_bitrate", "10M")),
+                 "-pix_fmt", "yuv420p", "-r", str(fps),
+                 "-c:a", "aac", "-b:a", str(rcfg.get("audio_bitrate", "192k")),
+                 "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(concat_out)]
+        run(args, desc=f"concat (xfade {xtype})")
+    else:
+        listfile = tmpdir / "list.txt"
+        listfile.write_text("".join(f"file '{p.as_posix()}'\n" for p in parts))
+        try:
+            run(["-f", "concat", "-safe", "0", "-i", str(listfile), "-c", "copy",
+                 "-movflags", "+faststart", str(concat_out)], desc="concat (copy)")
+        except Exception:
+            venc = pick_video_encoder(rcfg.get("hw_encoder", "h264_videotoolbox"),
+                                      rcfg.get("sw_encoder", "libx264"))
+            args = []
+            for p in parts:
+                args += ["-i", str(p)]
+            n = len(parts)
+            fc = "".join(f"[{i}:v][{i}:a]" for i in range(n)) + f"concat=n={n}:v=1:a=1[v][a]"
+            args += ["-filter_complex", fc, "-map", "[v]", "-map", "[a]",
+                     "-c:v", venc, "-b:v", str(rcfg.get("video_bitrate", "10M")),
+                     "-pix_fmt", "yuv420p", "-r", str(fps),
+                     "-c:a", "aac", "-b:a", str(rcfg.get("audio_bitrate", "192k")),
+                     "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(concat_out)]
+            run(args, desc="concat (filter re-encode)")
+
+    current = concat_out
+    if do_sfx:
+        from .sfx import mix_into
+        nxt = tmpdir / "_sfx.mp4"
+        mix_into(current, cues, nxt, cfg)
+        current = nxt
+    if do_music:
+        from .sfx import mix_music
+        nxt = tmpdir / "_music.mp4"
+        mix_music(current, music["file"], nxt, cfg,
+                  gain=music.get("gain"), duck=music.get("duck", True))
+        current = nxt
+    if edp.get("loudnorm"):
+        run(["-i", str(current), "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+             "-c:v", "copy", "-c:a", "aac", "-b:a", str(rcfg.get("audio_bitrate", "192k")),
+             "-movflags", "+faststart", str(out_path)], desc="finalize + loudnorm")
+    elif current != out_path:
+        run(["-i", str(current), "-c", "copy", "-movflags", "+faststart", str(out_path)],
+            desc="finalize")
+
+    # Designed graphic overlays (CTA / badge / stars / progress) — final pass on top.
+    overlays = edp.get("overlays") or []
+    if overlays:
+        from .graphics import build_overlay_specs
+        total = probe(out_path).duration
+        specs = build_overlay_specs(overlays, (tw, th), total, cfg, tmpdir)
+        if specs:
+            venc = pick_video_encoder(rcfg.get("hw_encoder", "h264_videotoolbox"),
+                                      rcfg.get("sw_encoder", "libx264"))
+            gtmp = tmpdir / "_graphics.mp4"
+            args = ["-i", str(out_path)]
+            for s in specs:
+                # loop each still PNG across the whole clip so timed/enable-gated
+                # and t-animated (progress) overlays persist past frame 0
+                args += ["-loop", "1", "-t", f"{total:.3f}", "-i", str(s["png"])]
+            chain, lab = [], "0:v"
+            for i, s in enumerate(specs, start=1):
+                o = f"g{i}"
+                en = f":enable='{s['enable']}'" if s.get("enable") else ""
+                chain.append(f"[{i}:v]format=rgba[ov{i}]")
+                chain.append(f"[{lab}][ov{i}]overlay=x={s['x']}:y={s['y']}:eval=frame{en}[{o}]")
+                lab = o
+            args += ["-filter_complex", ";".join(chain), "-map", f"[{lab}]", "-map", "0:a?",
+                     "-c:v", venc, "-b:v", str(rcfg.get("video_bitrate", "10M")), "-pix_fmt", "yuv420p",
+                     "-c:a", "copy", "-movflags", "+faststart", str(gtmp)]
+            run(args, desc="graphics overlay")
+            gtmp.replace(out_path)
+
+    edp_out = dict(edp)
+    edp_out["_render"] = {
+        "output": str(out_path), "target": [tw, th], "fps": fps, "preview": preview,
+        "segments": len(parts),
+        "rendered_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    sidecar = out_path.with_suffix(out_path.suffix + ".edp.json")
+    sidecar.write_text(json.dumps(edp_out, indent=2))
+
+    info = probe(out_path)
+    return {
+        "output": str(out_path), "sidecar": str(sidecar), "segments": len(parts),
+        "duration": info.duration, "resolution": f"{info.width}x{info.height}",
+        "size_bytes": info.size_bytes,
+    }

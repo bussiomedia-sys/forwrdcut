@@ -1,0 +1,69 @@
+# FORWRDCUT — project configuration
+# Paths are resolved relative to this file's directory (the project root).
+
+[brand]
+name = "FORWRD"
+niche = "pickleball gear"            # drives trend research grounding
+platforms = ["tiktok", "reels", "shorts"]
+
+[paths]
+source_dir = "media/source"         # READ-ONLY. Source clips live/symlink here.
+output_dir = "renders"              # finished, platform-named outputs
+preview_dir = "renders/previews"    # fast low-res previews
+cache_dir = "cache"                 # analysis cache (keyed by file hash)
+db_path = "cache/library.db"        # SQLite media index
+sfx_dir = "assets/sfx"              # local SFX pack (auto-generated if empty)
+trends_dir = "cache/trends"         # cached, timestamped trend research
+
+[render]
+hw_encoder = "h264_videotoolbox"    # Apple Silicon HW encode (verified present)
+sw_encoder = "libx264"              # fallback
+target_width = 1080
+target_height = 1920                # 9:16 vertical
+fps = 30                            # output fps (0 = keep source); 30 is the social default
+video_bitrate = "10M"
+audio_bitrate = "192k"
+preview_width = 540
+preview_height = 960
+reframe_mode = "cover"              # cover (center smart-crop) | blur_pad
+
+[captions]
+style = "box-pop"                   # box-pop | bold-pop | karaoke | clean-minimal
+font = "assets/fonts/Inter-Variable.ttf"   # FORWRD house font (Inter)
+fill = "#FFFFFF"
+stroke = "#000000"
+highlight = "#EA6024"               # FORWRD brand orange (emphasis word)
+# IG/Reels SAFE ZONES (fraction of frame) — keep captions clear of platform UI:
+# top = status bar + Reels header; bottom = caption/username/audio/nav; sides = action buttons
+safe_top_frac = 0.13                # keep text below the top ~13%
+safe_bottom_frac = 0.24             # keep text above the bottom ~24% (IG UI lives here)
+safe_side_frac = 0.08               # keep text within the middle 84% (clears right-side buttons)
+
+[grade]
+enabled = true                      # apply a brand color grade to footage
+preset = "punch"                    # punch | warm | vibrant | clean
+# lut = "assets/luts/forwrd.cube"   # optional: apply a custom .cube LUT instead
+# filter = "eq=contrast=1.05"       # optional: raw ffmpeg grade override
+
+[sfx]
+enabled = true                      # mix SFX at EDP cue points
+gain = 0.55                         # SFX level relative to speech (0..1)
+
+[music]
+gain = 0.12                         # music bed level under speech (used when a music file is set)
+duck = true                         # sidechain-duck music under speech
+
+[reframe]
+smart = true                        # subject-tracked auto-reframe (face detection)
+pan = true                          # allow a gentle pan if the subject drifts
+sample_fps = 3.0                    # frames/sec sampled for tracking
+min_face_ratio = 0.35               # require a face in ≥35% of samples to track (else center)
+
+[transcription]
+model = "small"                     # faster-whisper model: tiny|base|small|medium|large-v3
+language = "en"
+compute_type = "int8"              # int8 is fast on Apple Silicon CPU
+
+[vision]
+model = "claude-opus-4-8"           # Claude vision for shot descriptions
+enabled = true                      # set false to skip vision (no API calls)
