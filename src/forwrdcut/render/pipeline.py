@@ -20,21 +20,38 @@ from .grade import grade_chain
 from .reframe import reframe_chain, tracked_chain
 
 
-def _motion_chain(motion: str | None, w: int, h: int, fps: int) -> str:
+def _motion_chain(motion: str | None, w: int, h: int, fps: int,
+                  pulses: list[float] | None = None) -> str:
     """Leading-comma filter for a per-segment camera move on the WxH base.
-    Pre-scales 2x then zoompan-samples back so the slow zoom stays sharp + smooth.
-    Captions overlay AFTER this, so text never moves — only the footage does."""
-    presets = {
-        "zoom_in":  ("1.0", "min(pzoom+0.0006,1.10)"),
-        "zoom_out": ("1.10", "max(pzoom-0.0006,1.0)"),
-        "punch":    ("1.0", "min(pzoom+0.0030,1.08)"),
+    Pre-scales 2x then zoompan-samples back so the move stays sharp + smooth.
+    Captions overlay AFTER this, so text never moves — only the footage does.
+
+    ``motion`` adds a slow drift (zoom_in/zoom_out/punch). ``pulses`` is a list of
+    times (seconds from segment start) to add a quick emphasis scale-pop on — this is
+    the 'punch on the important word' beat that makes a modern edit feel alive. The two
+    compose: a slow push plus snappy accents."""
+    # absolute, frame-indexed drift (on = output frame number at `fps`)
+    drift = {
+        "zoom_in":  "min(0.00060*on,0.10)",
+        "zoom_out": "max(0.10-0.00060*on,0.0)",
+        "punch":    "min(0.00300*on,0.08)",
     }
-    if not motion or motion not in presets:
+    base = drift.get(motion or "", None)
+    if base is None and not pulses:
         return ""
-    start, z = presets[motion]
-    expr = f"if(eq(on,0),{start},{z})"
+    parts = ["1.0"]
+    if base is not None:
+        parts.append(f"({base})")
+    if pulses:
+        width = max(1.0, 0.10 * fps)          # ~100ms pop
+        amp = 0.060                            # 6% scale punch
+        bumps = "+".join(
+            f"{amp}*exp(-pow((on-{t * fps:.1f})/{width:.1f}\\,2))" for t in pulses if t >= 0)
+        if bumps:
+            parts.append(f"({bumps})")
+    z = "min(" + "+".join(parts) + ",1.22)"
     return (f",scale={w * 2}:{h * 2}:flags=bicubic,"
-            f"zoompan=z='{expr}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"zoompan=z='{z}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
             f"s={w}x{h}:fps={fps}")
 
 
@@ -73,7 +90,8 @@ def _build_caption_track(cfg, dur, tw, th, target_fps, words, caption_text, posi
 
 def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
                  words=None, caption_text=None, position="lower", reframe_mode=None,
-                 caption_style=None, mute_audio=False, motion=None, faststart=True) -> dict:
+                 caption_style=None, mute_audio=False, motion=None, emphasis_times=None,
+                 faststart=True) -> dict:
     clip_path = Path(clip_path)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -91,7 +109,7 @@ def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
         chain = tracked_chain(plan) if plan else reframe_chain(tw, th, "cover")
     else:
         chain = reframe_chain(tw, th, mode)
-    motion_fc = _motion_chain(motion, tw, th, target_fps)
+    motion_fc = _motion_chain(motion, tw, th, target_fps, pulses=emphasis_times)
     g = grade_chain(cfg)
     gc = f",{g}" if g else ""
     base_chain = f"[0:v]{chain}{gc},fps={target_fps}{motion_fc}[base]"
@@ -139,13 +157,13 @@ def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
 
 def render_segment(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
                    words=None, caption_text=None, position="center", reframe_mode=None,
-                   caption_style=None, mute_audio=False, motion=None) -> dict:
+                   caption_style=None, mute_audio=False, motion=None, emphasis_times=None) -> dict:
     """Render one normalized, concat-safe segment (no sidecar, no faststart)."""
     return _render_core(clip_path, start, end, out_path, cfg=cfg, tw=tw, th=th,
                         target_fps=target_fps, words=words, caption_text=caption_text,
                         position=position, reframe_mode=reframe_mode,
                         caption_style=caption_style, mute_audio=mute_audio, motion=motion,
-                        faststart=False)
+                        emphasis_times=emphasis_times, faststart=False)
 
 
 def render_vo_segment(clip_path, start, vo_wav, words, out_path, *, cfg, tw, th,
