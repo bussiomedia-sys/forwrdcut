@@ -155,7 +155,7 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
                            target_fps=fps, words=words, caption_text=caption_text,
                            position=position, reframe_mode=seg.get("reframe"),
                            caption_style=cap_style, mute_audio=mute, motion=mtn,
-                           emphasis_times=emph)
+                           emphasis_times=emph, speed=float(seg.get("speed", 1.0)))
         parts.append(part)
 
     cues = edp.get("sfx") or []

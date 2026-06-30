@@ -21,21 +21,32 @@ from .reframe import reframe_chain, tracked_chain
 
 
 def _motion_chain(motion: str | None, w: int, h: int, fps: int,
-                  pulses: list[float] | None = None) -> str:
+                  pulses: list[float] | None = None, nframes: int | None = None) -> str:
     """Leading-comma filter for a per-segment camera move on the WxH base.
     Pre-scales 2x then zoompan-samples back so the move stays sharp + smooth.
     Captions overlay AFTER this, so text never moves — only the footage does.
 
-    ``motion`` adds a slow drift (zoom_in/zoom_out/punch). ``pulses`` is a list of
-    times (seconds from segment start) to add a quick emphasis scale-pop on — this is
-    the 'punch on the important word' beat that makes a modern edit feel alive. The two
-    compose: a slow push plus snappy accents."""
-    # absolute, frame-indexed drift (on = output frame number at `fps`)
-    drift = {
-        "zoom_in":  "min(0.00060*on,0.10)",
-        "zoom_out": "max(0.10-0.00060*on,0.0)",
-        "punch":    "min(0.00300*on,0.08)",
-    }
+    ``motion`` adds a camera move: zoom_in/zoom_out use an **ease-in-out** curve (the
+    pro look — accelerate then settle, not a robotic linear creep), punch is a quick
+    ease-out. ``pulses`` is a list of times (seconds from segment start) for a quick
+    emphasis scale-pop. ``nframes`` (segment length in frames) enables the eased curve;
+    without it we fall back to the legacy linear drift."""
+    if nframes and nframes > 1:
+        # eased drift normalized over the segment: p in [0,1]
+        p = f"clip(on/{int(nframes)},0,1)"
+        eio = f"(if(lt({p},0.5),4*pow({p},3),1-pow(-2*{p}+2,3)/2))"   # ease-in-out cubic
+        eo = f"(1-pow(1-{p},3))"                                       # ease-out cubic
+        drift = {
+            "zoom_in":  f"0.10*{eio}",
+            "zoom_out": f"0.10*(1-{eio})",
+            "punch":    f"0.08*{eo}",
+        }
+    else:
+        drift = {                       # legacy linear fallback
+            "zoom_in":  "min(0.00060*on,0.10)",
+            "zoom_out": "max(0.10-0.00060*on,0.0)",
+            "punch":    "min(0.00300*on,0.08)",
+        }
     base = drift.get(motion or "", None)
     if base is None and not pulses:
         return ""
@@ -91,7 +102,7 @@ def _build_caption_track(cfg, dur, tw, th, target_fps, words, caption_text, posi
 def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
                  words=None, caption_text=None, position="lower", reframe_mode=None,
                  caption_style=None, mute_audio=False, motion=None, emphasis_times=None,
-                 faststart=True) -> dict:
+                 speed=1.0, faststart=True) -> dict:
     clip_path = Path(clip_path)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,6 +111,13 @@ def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
     start = max(0.0, float(start))
     end = min(float(end), info.duration) if info.duration else float(end)
     dur = max(0.05, end - start)
+    # Speed / velocity: <1 = slow-mo, >1 = fast. We read `dur` of source and re-time it to
+    # out_dur = dur/speed. speed==1.0 leaves the path byte-identical to before. Sped segments
+    # are silent (music carries) to avoid pitch-shift; word captions are rescaled to match.
+    speed = max(0.1, float(speed or 1.0))
+    sped = abs(speed - 1.0) > 1e-3
+    out_dur = dur / speed
+    spd = f",setpts=PTS/{speed:.4f}" if sped else ""
 
     rcfg = cfg.render
     mode = reframe_mode or rcfg.get("reframe_mode", "cover")
@@ -109,29 +127,33 @@ def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
         chain = tracked_chain(plan) if plan else reframe_chain(tw, th, "cover")
     else:
         chain = reframe_chain(tw, th, mode)
-    motion_fc = _motion_chain(motion, tw, th, target_fps, pulses=emphasis_times)
+    motion_fc = _motion_chain(motion, tw, th, target_fps, pulses=emphasis_times,
+                              nframes=int(out_dur * target_fps))
     g = grade_chain(cfg)
     gc = f",{g}" if g else ""
-    base_chain = f"[0:v]{chain}{gc},fps={target_fps}{motion_fc}[base]"
+    base_chain = f"[0:v]{chain}{gc}{spd},fps={target_fps}{motion_fc}[base]"
 
     style = caption_style or cfg.captions.get("style", "bold-pop")
     inputs = ["-ss", fmt_time(start), "-t", fmt_time(dur), "-i", str(clip_path)]
+    cap_words = words
+    if sped and words:   # remap caption word timings onto the re-timed clip
+        cap_words = [{**w, "start": w["start"] / speed, "end": w["end"] / speed} for w in words]
     extra, has_overlay, caption_kind, tmpdir = _build_caption_track(
-        cfg, dur, tw, th, target_fps, words, caption_text, position, style)
+        cfg, out_dur, tw, th, target_fps, cap_words, caption_text, position, style)
     inputs += extra
 
     if has_overlay:
         fc = f"{base_chain};[base][1:v]overlay=0:0:shortest=1,format=yuv420p[vout]"
     else:
-        fc = f"[0:v]{chain}{gc},fps={target_fps}{motion_fc},format=yuv420p[vout]"
+        fc = f"[0:v]{chain}{gc}{spd},fps={target_fps}{motion_fc},format=yuv420p[vout]"
 
     # Always emit a stereo 48k audio track (silent if the source has none) so
     # segments are concat-compatible. Map only the FIRST audio stream — iPhone
     # MOVs carry phantom audio/metadata tracks (codec "none") that break -map 0:a?.
-    if info.has_audio and not mute_audio:
+    if info.has_audio and not mute_audio and not sped:
         audio_map = "0:a:0?"
     else:
-        inputs += ["-f", "lavfi", "-t", fmt_time(dur),
+        inputs += ["-f", "lavfi", "-t", fmt_time(out_dur),
                    "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
         audio_map = f"{len([x for x in inputs if x == '-i'])-1}:a"
 
@@ -146,6 +168,8 @@ def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
         "-c:a", "aac", "-b:a", str(rcfg.get("audio_bitrate", "192k")),
         "-ar", "48000", "-ac", "2", "-dn", "-ignore_unknown",
     ]
+    if sped:
+        args += ["-t", fmt_time(out_dur)]
     if faststart:
         args += ["-movflags", "+faststart"]
     args += [str(out_path)]
@@ -157,13 +181,14 @@ def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
 
 def render_segment(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
                    words=None, caption_text=None, position="center", reframe_mode=None,
-                   caption_style=None, mute_audio=False, motion=None, emphasis_times=None) -> dict:
+                   caption_style=None, mute_audio=False, motion=None, emphasis_times=None,
+                   speed=1.0) -> dict:
     """Render one normalized, concat-safe segment (no sidecar, no faststart)."""
     return _render_core(clip_path, start, end, out_path, cfg=cfg, tw=tw, th=th,
                         target_fps=target_fps, words=words, caption_text=caption_text,
                         position=position, reframe_mode=reframe_mode,
                         caption_style=caption_style, mute_audio=mute_audio, motion=motion,
-                        emphasis_times=emphasis_times, faststart=False)
+                        emphasis_times=emphasis_times, speed=speed, faststart=False)
 
 
 def render_vo_segment(clip_path, start, vo_wav, words, out_path, *, cfg, tw, th,
@@ -195,7 +220,8 @@ def render_vo_segment(clip_path, start, vo_wav, words, out_path, *, cfg, tw, th,
     inputs += ["-i", str(vo_wav)]
     vo_idx = sum(1 for x in inputs if x == "-i") - 1
 
-    motion_fc = _motion_chain(motion, tw, th, target_fps, pulses=emphasis_times)
+    motion_fc = _motion_chain(motion, tw, th, target_fps, pulses=emphasis_times,
+                              nframes=int(dur * target_fps))
     g = grade_chain(cfg)
     gc = f",{g}" if g else ""
     held = f"[0:v]{chain}{gc},fps={target_fps},tpad=stop_mode=clone:stop_duration={dur:.3f}{motion_fc}"

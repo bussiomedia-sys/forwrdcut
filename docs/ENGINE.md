@@ -49,7 +49,11 @@ Plain JSON, the single input to the timeline assembler. Author it, validate it, 
   `{"text": "…"}` (static styled headline).
 - `reframe`: `"cover"` (center smart-crop), `"blur_pad"` (pillarbox with blurred surround),
   `"smart"` (subject/face-tracked reframe).
-- `motion`: `"zoom_in" | "zoom_out" | "punch"` (or rely on `auto_motion`).
+- `motion`: `"zoom_in" | "zoom_out" | "punch"` (or rely on `auto_motion`). Zooms use an
+  **ease-in-out** curve (accelerate then settle — the pro look), not a linear creep.
+- `speed`: playback multiplier — `0.5` = slow-mo, `2.0` = fast. The velocity-edit primitive
+  (compose with beat detection: slow a beat, snap-cut, speed the next). Sped segments are
+  silent (music carries) and their word captions are auto-rescaled. Default `1.0`.
 
 ### Overlays (designed graphics, composited in a final pass)
 - `callout` — big Inter-Black all-caps headline, white with one `*orange word*` (mark a
