@@ -163,6 +163,12 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
     cues = edp.get("sfx") or []
     do_sfx = bool(cues) and bool(cfg.data.get("sfx", {}).get("enabled", True))
     music = edp.get("music") or {}
+    if music and not music.get("file") and music.get("mood"):
+        # resolve a mood to a real track: licensed library first, procedural bed fallback
+        from ..audio.music import pick_music
+        total_guess = sum(probe(p).duration or 0 for p in parts)
+        track = pick_music(cfg, mood=music["mood"], min_duration=min(total_guess, 20.0))
+        music = {**music, "file": track["path"]}
     do_music = bool(music.get("file")) and Path(music["file"]).exists()
     concat_out = tmpdir / "_concat.mp4"
 

@@ -20,6 +20,9 @@ venv/
 /cache/
 /renders/
 /outputs/
+
+# Licensed music: yours to use, NOT yours to redistribute — never commit it
+assets/music/licensed/
 *.mp4
 *.mov
 *.MOV

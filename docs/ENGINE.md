@@ -65,6 +65,21 @@ Plain JSON, the single input to the timeline assembler. Author it, validate it, 
 - `cta` — orange pill button. `badge` — small brand/credibility chip. `stars` — rating row
   + text. `progress` — thin retention bar. Each takes `start`/`end` (absolute seconds) and `position`.
 
+### Music (`audio/music.py`) — licensed tracks first, procedural beds as fallback
+Drop licensed audio into `assets/music/licensed/` (gitignored — never committed) or set
+`[music] licensed_dir` in config.toml. The library detects BPM (`analysis/beats.py`),
+duration, and a mood from filename tokens (`upbeat/driving/chill/cinematic`…), cached by
+mtime. An EDP can then say `"music": {"mood": "upbeat", "duck": true}` — the timeline
+resolves the best licensed track (procedural bed fallback). `forwrdcut music` lists the
+library. Detected BPM feeds beat-aligned cutting.
+
+### QC (`analysis/qc.py`) — the engine checks its own renders
+`forwrdcut qc --file out.mp4` (or `qc_render()` / the MCP tool) reports machine-checkable
+defects: video/audio stream mismatch (frozen-tail class), loudness off the -14 LUFS target,
+true-peak clipping risk, mid-edit frozen video (end-card holds are allowed), black-frame
+opens — plus a contact-sheet PNG. Writes `<render>.qc.json`; exits non-zero on issues so
+scripts/CI can gate on it.
+
 ### Cinematic looks (top-level, opt-in finishing pass — `render/looks.py`)
 - `cinematic: true` — convenience: 2.39:1 letterbox bars + a gentle vignette.
 - `letterbox: 2.39` (custom bar ratio), `vignette: true|0..1`, `glow: 0..1` (highlight bloom),

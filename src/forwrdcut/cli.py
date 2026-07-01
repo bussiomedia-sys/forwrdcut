@@ -179,6 +179,43 @@ def cmd_template(args) -> int:
     return 0
 
 
+def cmd_music(args) -> int:
+    from .audio.music import scan_music
+
+    cfg = load_config(args.config)
+    tracks = scan_music(cfg, force=args.rescan)
+    if not tracks:
+        print("No licensed tracks found. Drop audio into assets/music/licensed/ "
+              "(or set [music] licensed_dir) — procedural beds remain the fallback.")
+        return 0
+    print(f"{len(tracks)} licensed track(s):")
+    for t in tracks:
+        bpm = f"{t['bpm']:.0f}bpm" if t.get("bpm") else "bpm?"
+        print(f"  [{t.get('mood') or '-':9s}] {t['duration']:6.1f}s  {bpm:7s}  {t['name']}")
+    return 0
+
+
+def cmd_qc(args) -> int:
+    from .analysis.qc import qc_render
+
+    cfg = load_config(args.config)
+    report = qc_render(cfg, args.file, sheet=not args.no_sheet,
+                       loudnorm_expected=not args.no_loudnorm)
+    v, a = report["video"], report["audio"]
+    print(f"{report['file']}")
+    print(f"  video : {v['width']}x{v['height']}  {v['duration']}s")
+    print(f"  audio : lufs={a.get('integrated_lufs')}  peak={a.get('peak_dbfs')} dBFS")
+    if report.get("sheet"):
+        print(f"  sheet : {report['sheet']}")
+    if report["ok"]:
+        print("  QC    : ✓ clean")
+        return 0
+    print("  QC    : ✗ ISSUES")
+    for i in report["issues"]:
+        print(f"    - {i}")
+    return 1
+
+
 def cmd_batch(args) -> int:
     from .strategy.batch import make_batch
     from .strategy import edp as edpmod
@@ -380,6 +417,17 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--cinematic", action="store_true", help="apply letterbox + vignette look")
     sp.add_argument("--out", default=None)
     sp.set_defaults(func=cmd_template)
+
+    sp = sub.add_parser("music", help="list the licensed music library (BPM/mood detected)")
+    sp.add_argument("--rescan", action="store_true", help="ignore the metadata cache")
+    sp.set_defaults(func=cmd_music)
+
+    sp = sub.add_parser("qc", help="QC a rendered video: loudness, stream match, freezes, sheet")
+    sp.add_argument("--file", required=True)
+    sp.add_argument("--no-sheet", dest="no_sheet", action="store_true")
+    sp.add_argument("--no-loudnorm", dest="no_loudnorm", action="store_true",
+                    help="don't expect -14 LUFS (e.g. organic clips)")
+    sp.set_defaults(func=cmd_qc)
 
     sp = sub.add_parser("batch", help='"make me N TikToks" — pick best clips, render each')
     sp.add_argument("--n", default=3, type=int, help="how many clips to produce")
