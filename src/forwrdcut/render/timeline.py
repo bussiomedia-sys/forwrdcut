@@ -224,12 +224,14 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
         mix_music(current, music["file"], nxt, cfg,
                   gain=music.get("gain"), duck=music.get("duck", True))
         current = nxt
+    # -shortest on the finishing passes guarantees the final video length matches its audio
+    # (the VO/music spine) — no runaway frozen video tail can survive to the output.
     if edp.get("loudnorm"):
         run(["-i", str(current), "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
              "-c:v", "copy", "-c:a", "aac", "-b:a", str(rcfg.get("audio_bitrate", "192k")),
-             "-movflags", "+faststart", str(out_path)], desc="finalize + loudnorm")
+             "-shortest", "-movflags", "+faststart", str(out_path)], desc="finalize + loudnorm")
     elif current != out_path:
-        run(["-i", str(current), "-c", "copy", "-movflags", "+faststart", str(out_path)],
+        run(["-i", str(current), "-c", "copy", "-shortest", "-movflags", "+faststart", str(out_path)],
             desc="finalize")
 
     # Cinematic finishing look (letterbox / vignette / glow / grain) — before overlays so
@@ -269,7 +271,7 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
                 lab = o
             args += ["-filter_complex", ";".join(chain), "-map", f"[{lab}]", "-map", "0:a?",
                      "-c:v", venc, "-b:v", str(rcfg.get("video_bitrate", "10M")), "-pix_fmt", "yuv420p",
-                     "-c:a", "copy", "-movflags", "+faststart", str(gtmp)]
+                     "-c:a", "copy", "-shortest", "-movflags", "+faststart", str(gtmp)]
             run(args, desc="graphics overlay")
             gtmp.replace(out_path)
 

@@ -252,10 +252,14 @@ def render_vo_segment(clip_path, start, vo_wav, words, out_path, *, cfg, tw, th,
     g = grade_chain(cfg)
     gc = f",{g}" if g else ""
     held = f"[0:v]{chain}{gc},fps={target_fps},tpad=stop_mode=clone:stop_duration={dur:.3f}{motion_fc}"
+    # Hard-cap the video to the VO duration in-graph — invariant: a VO segment's video is
+    # EXACTLY its voiceover length. Belt-and-suspenders with the output -t, so no source/filter
+    # quirk (e.g. a generated still) can leave a frozen video tail past the audio.
+    trim = f"trim=duration={dur:.3f},setpts=PTS-STARTPTS"
     if has_overlay:
-        fc = f"{held}[base];[base][1:v]overlay=0:0:shortest=1,format=yuv420p[vout]"
+        fc = f"{held}[base];[base][1:v]overlay=0:0:shortest=1,{trim},format=yuv420p[vout]"
     else:
-        fc = f"{held},format=yuv420p[vout]"
+        fc = f"{held},{trim},format=yuv420p[vout]"
 
     venc = pick_video_encoder(rcfg.get("hw_encoder", "h264_videotoolbox"),
                               rcfg.get("sw_encoder", "libx264"))
