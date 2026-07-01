@@ -231,6 +231,53 @@ def list_outputs() -> list[dict]:
     return outs
 
 
+@mcp.tool()
+def autoedit_short(clip: str, platform: str = "shorts", seconds: float = 24.0,
+                   aspect: str = "9x16", music_style: str = "driving",
+                   reframe: str = "cover") -> dict:
+    """One-call autonomous edit: raw clip -> finished Short (transcribe, hook-first
+    jump-cut, captions, emphasis, beat-aligned cuts, ducked music, loudnorm)."""
+    from ..strategy.autoedit import autoedit
+    cfg = _cfg()
+    targets = {"9x16": (1080, 1920), "16x9": (1920, 1080), "1x1": (1080, 1080)}
+    w, h = targets.get(aspect, targets["9x16"])
+    out = cfg.output_dir / f"{Path(clip).stem}_short_{aspect}.mp4"
+    return autoedit(cfg, clip, out, platform=platform, target_seconds=seconds,
+                    music_style=music_style, target={"width": w, "height": h, "fps": 30},
+                    reframe=reframe)
+
+
+@mcp.tool()
+def render_from_template(name: str, clips: list[str], aspect: str = "9x16",
+                         music_style: str = "driving",
+                         headlines: Optional[list[str]] = None,
+                         cinematic: bool = False) -> dict:
+    """Fill a beat-timed template (beat_slideshow | feature_showcase | photo_slideshow)
+    with clips/photos and render it."""
+    from ..strategy.templates import render_template
+    cfg = _cfg()
+    out = cfg.output_dir / f"{name}_{aspect}.mp4"
+    return render_template(cfg, name, clips, out, aspect=aspect,
+                           music_style=music_style, headlines=headlines,
+                           cinematic=cinematic)
+
+
+@mcp.tool()
+def qc(path: str, loudnorm_expected: bool = True) -> dict:
+    """QC a rendered video: stream mismatch, loudness vs -14 LUFS, clipping risk,
+    mid-edit freezes, black open. Returns the report (ok=True means clean)."""
+    from ..analysis.qc import qc_render
+    return qc_render(_cfg(), path, sheet=True, loudnorm_expected=loudnorm_expected)
+
+
+@mcp.tool()
+def music_library(rescan: bool = False) -> list[dict]:
+    """List licensed music tracks (BPM/mood/duration detected). Drop files into
+    assets/music/licensed/ to add; procedural beds are the fallback."""
+    from ..audio.music import scan_music
+    return scan_music(_cfg(), force=rescan)
+
+
 def main() -> None:
     mcp.run()
 
