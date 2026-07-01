@@ -19,6 +19,11 @@ from ..media.ffprobe import probe
 from .pipeline import render_segment, render_vo_segment
 from ..analysis.emphasis import emphasis_pulses
 
+# one-pass loudnorm can overshoot true peak (QC caught this on its first dogfood render).
+# The trailing limiter caps sample peak at -2 dB; inter-sample overshoot (~0.6 dB) then
+# still lands under the -1 dBTP delivery target.
+_LOUDNORM = "loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.79:level=disabled"
+
 
 def _resolve_caption(cfg: Config, seg: dict):
     """Return (words, caption_text) for a segment's caption directive."""
@@ -230,56 +235,60 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
         mix_music(current, music["file"], nxt, cfg,
                   gain=music.get("gain"), duck=music.get("duck", True))
         current = nxt
-    # -shortest on the finishing passes guarantees the final video length matches its audio
-    # (the VO/music spine) — no runaway frozen video tail can survive to the output.
-    if edp.get("loudnorm"):
-        run(["-i", str(current), "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
-             "-c:v", "copy", "-c:a", "aac", "-b:a", str(rcfg.get("audio_bitrate", "192k")),
-             "-shortest", "-movflags", "+faststart", str(out_path)], desc="finalize + loudnorm")
-    elif current != out_path:
-        run(["-i", str(current), "-c", "copy", "-shortest", "-movflags", "+faststart", str(out_path)],
-            desc="finalize")
-
-    # Cinematic finishing look (letterbox / vignette / glow / grain) — before overlays so
-    # text/badges sit on top of the bars. Skipped entirely when no look keys are set.
+    # ---- SINGLE-PASS FINISH ------------------------------------------------------
+    # Cinematic look + graphic overlays + loudnorm all happen in ONE encode (they used
+    # to be up to three sequential passes — each a generation of quality loss). The
+    # look chain runs first so text/badges sit on top of letterbox bars. -shortest
+    # guarantees the output length matches the audio spine (no frozen-tail survives).
     from .looks import build_look_graph
     look = build_look_graph(edp)
-    if look:
-        venc = pick_video_encoder(rcfg.get("hw_encoder", "h264_videotoolbox"),
-                                  rcfg.get("sw_encoder", "libx264"))
-        ltmp = tmpdir / "_look.mp4"
-        run(["-i", str(out_path), "-filter_complex", look, "-map", "[vout]", "-map", "0:a?",
-             "-c:v", venc, "-b:v", str(rcfg.get("video_bitrate", "10M")), "-pix_fmt", "yuv420p",
-             "-c:a", "copy", "-movflags", "+faststart", str(ltmp)], desc="cinematic look")
-        ltmp.replace(out_path)
-
-    # Designed graphic overlays (CTA / badge / stars / progress) — final pass on top.
     overlays = edp.get("overlays") or []
+    specs = []
     if overlays:
         from .graphics import build_overlay_specs
-        total = probe(out_path).duration
+        total = probe(current).duration
         specs = build_overlay_specs(overlays, (tw, th), total, cfg, tmpdir)
-        if specs:
-            venc = pick_video_encoder(rcfg.get("hw_encoder", "h264_videotoolbox"),
-                                      rcfg.get("sw_encoder", "libx264"))
-            gtmp = tmpdir / "_graphics.mp4"
-            args = ["-i", str(out_path)]
-            for s in specs:
-                # loop each still PNG across the whole clip so timed/enable-gated
-                # and t-animated (progress) overlays persist past frame 0
-                args += ["-loop", "1", "-t", f"{total:.3f}", "-i", str(s["png"])]
-            chain, lab = [], "0:v"
-            for i, s in enumerate(specs, start=1):
-                o = f"g{i}"
-                en = f":enable='{s['enable']}'" if s.get("enable") else ""
-                chain.append(f"[{i}:v]format=rgba[ov{i}]")
-                chain.append(f"[{lab}][ov{i}]overlay=x={s['x']}:y={s['y']}:eval=frame{en}[{o}]")
-                lab = o
-            args += ["-filter_complex", ";".join(chain), "-map", f"[{lab}]", "-map", "0:a?",
-                     "-c:v", venc, "-b:v", str(rcfg.get("video_bitrate", "10M")), "-pix_fmt", "yuv420p",
-                     "-c:a", "copy", "-shortest", "-movflags", "+faststart", str(gtmp)]
-            run(args, desc="graphics overlay")
-            gtmp.replace(out_path)
+    loudnorm = bool(edp.get("loudnorm"))
+
+    if not look and not specs:
+        # nothing visual to burn: stream-copy video; loudnorm (audio-only encode) if asked
+        if loudnorm:
+            run(["-i", str(current), "-af", _LOUDNORM,
+                 "-c:v", "copy", "-c:a", "aac", "-b:a", str(rcfg.get("audio_bitrate", "192k")),
+                 "-shortest", "-movflags", "+faststart", str(out_path)],
+                desc="finalize + loudnorm")
+        else:
+            run(["-i", str(current), "-c", "copy", "-shortest", "-movflags", "+faststart",
+                 str(out_path)], desc="finalize")
+    else:
+        venc = pick_video_encoder(rcfg.get("hw_encoder", "h264_videotoolbox"),
+                                  rcfg.get("sw_encoder", "libx264"))
+        args = ["-i", str(current)]
+        chain, lab = [], "0:v"
+        if look:
+            # the look graph ends "[vout]"; relabel it so overlays can chain after it
+            chain.append(look[:-len("[vout]")] + "[lkbase]" if specs else look)
+            lab = "lkbase" if specs else "vout"
+        for i, s in enumerate(specs, start=1):
+            # loop each still PNG across the whole clip so timed/enable-gated and
+            # t-animated (progress) overlays persist past frame 0
+            args += ["-loop", "1", "-t", f"{total:.3f}", "-i", str(s["png"])]
+            o = f"g{i}"
+            en = f":enable='{s['enable']}'" if s.get("enable") else ""
+            chain.append(f"[{i}:v]format=rgba[ov{i}]")
+            chain.append(f"[{lab}][ov{i}]overlay=x={s['x']}:y={s['y']}:eval=frame{en}[{o}]")
+            lab = o
+        if lab != "vout":
+            chain.append(f"[{lab}]format=yuv420p[vout]")
+        amap = ["-map", "0:a?", "-c:a", "copy"]
+        if loudnorm:
+            chain.append(f"[0:a]{_LOUDNORM}[aout]")
+            amap = ["-map", "[aout]", "-c:a", "aac", "-b:a", str(rcfg.get("audio_bitrate", "192k")),
+                    "-ar", "48000", "-ac", "2"]
+        args += ["-filter_complex", ";".join(chain), "-map", "[vout]", *amap,
+                 "-c:v", venc, "-b:v", str(rcfg.get("video_bitrate", "10M")),
+                 "-pix_fmt", "yuv420p", "-shortest", "-movflags", "+faststart", str(out_path)]
+        run(args, desc="finish (look+overlays+loudnorm, single pass)")
 
     edp_out = dict(edp)
     edp_out["_render"] = {
@@ -289,6 +298,9 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
     }
     sidecar = out_path.with_suffix(out_path.suffix + ".edp.json")
     sidecar.write_text(json.dumps(edp_out, indent=2))
+
+    import shutil
+    shutil.rmtree(tmpdir, ignore_errors=True)   # segments/overlay PNGs — no per-render leak
 
     info = probe(out_path)
     return {

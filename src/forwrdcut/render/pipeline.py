@@ -201,7 +201,12 @@ def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
         args += ["-movflags", "+faststart"]
     args += [str(out_path)]
 
-    run(args, desc=f"render -> {out_path.name}")
+    try:
+        run(args, desc=f"render -> {out_path.name}")
+    finally:
+        if tmpdir:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)   # caption frames — don't leak per segment
     return {"caption_kind": caption_kind, "in": round(start, 3), "out": round(end, 3),
             "duration": round(dur, 3), "encoder": venc, "args": args}
 
@@ -241,7 +246,7 @@ def render_vo_segment(clip_path, start, vo_wav, words, out_path, *, cfg, tw, th,
     # video: read from `start`, slightly past the VO; tpad clones the last frame to
     # fill any gap; output is capped to the VO duration.
     inputs = ["-ss", fmt_time(start), "-t", fmt_time(dur + 0.5), "-i", str(clip_path)]
-    extra, has_overlay, _, _ = _build_caption_track(
+    extra, has_overlay, _, cap_tmp = _build_caption_track(
         cfg, dur, tw, th, target_fps, words, None, position, style)
     inputs += extra
     inputs += ["-i", str(vo_wav)]
@@ -270,7 +275,12 @@ def render_vo_segment(clip_path, start, vo_wav, words, out_path, *, cfg, tw, th,
         "-c:a", "aac", "-b:a", str(rcfg.get("audio_bitrate", "192k")), "-ar", "48000", "-ac", "2",
         "-t", f"{dur:.3f}", "-dn", "-ignore_unknown", str(out_path),
     ]
-    run(args, desc=f"vo segment -> {out_path.name}")
+    try:
+        run(args, desc=f"vo segment -> {out_path.name}")
+    finally:
+        if cap_tmp:
+            import shutil
+            shutil.rmtree(cap_tmp, ignore_errors=True)
     return {"duration": round(dur, 3)}
 
 

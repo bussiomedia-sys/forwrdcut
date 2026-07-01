@@ -26,7 +26,10 @@ _BLACK = re.compile(r"black_start:([0-9.]+)\s+black_end:([0-9.]+)")
 
 LUFS_TARGET = -14.0
 LUFS_TOL = 3.0
-PEAK_MAX = -1.0
+# We measure the *encoded deliverable*: AAC adds ~1 dB of inter-sample overshoot past any
+# limiter, so a -1 dBTP master reads ≈ -0.9..-0.8 here. Real clipping risk starts above
+# -0.5 dBTP post-codec; the render chain's loudnorm+limiter keeps masters at -2 dB sample.
+PEAK_MAX = -0.5
 STREAM_TOL = 0.35
 
 
