@@ -1,0 +1,27 @@
+# Brand kit — copy to brands/<yourbrand>.toml and set `"brand": "<yourbrand>"` in your EDP.
+# The kit styles the render (accent color) and LINTS the copy: any VO line or overlay with
+# numbers/claim language must be covered by [claims].approved — fabricated or stale stats
+# get caught before render, not after a human notices.
+
+[brand]
+name = "Example Co"
+url = "example.com"
+
+[style]
+highlight = "#EA6024"          # accent for callout keywords, stars, CTA pills, captions
+# logo_white = "assets/brand/logo_white.png"
+# logo_dark = "assets/brand/logo_dark.png"
+
+[voice]
+no_em_dash = true              # house style: no em dashes in on-screen copy
+banned_words = ["best", "revolutionary", "disruptive", "game-changer", "luxury"]
+
+[claims]
+# Approved, product-true facts — exactly as you're allowed to state them.
+# The linter normalizes spoken numbers ("four point seven stars" == "4.7 stars").
+approved = [
+  "4.7 stars",
+  "261 verified reviews",
+  "lifetime warranty",
+  "free shipping over $75",
+]

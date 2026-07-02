@@ -179,6 +179,26 @@ def cmd_template(args) -> int:
     return 0
 
 
+def cmd_lint(args) -> int:
+    import json as _json
+    from .strategy.brand import load_brand, lint_edp
+
+    cfg = load_config(args.config)
+    edp = _json.loads(Path(args.plan).read_text())
+    brand = args.brand or edp.get("brand")
+    if not brand:
+        print("No brand given (--brand) and the EDP has no \"brand\" field.")
+        return 2
+    issues = lint_edp(edp, load_brand(cfg, brand))
+    if not issues:
+        print(f"✓ copy is clean against brands/{brand}.toml")
+        return 0
+    print(f"✗ {len(issues)} issue(s) vs brands/{brand}.toml:")
+    for i in issues:
+        print(f"  - {i}")
+    return 1
+
+
 def cmd_find(args) -> int:
     from .analysis.library import find
 
@@ -448,6 +468,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--cinematic", action="store_true", help="apply letterbox + vignette look")
     sp.add_argument("--out", default=None)
     sp.set_defaults(func=cmd_template)
+
+    sp = sub.add_parser("lint", help="check an EDP's copy against a brand kit's claims registry")
+    sp.add_argument("--plan", required=True, help="path to the .edp.json")
+    sp.add_argument("--brand", default=None, help="brand kit name (default: the EDP's \"brand\")")
+    sp.set_defaults(func=cmd_lint)
 
     sp = sub.add_parser("find", help='shot search: `find --q "clamshell open paddles"` -> clip @ timestamp')
     sp.add_argument("--q", required=True, help="what you're looking for, plain words")

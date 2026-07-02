@@ -154,6 +154,15 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
     # unless the EDP/segment opts out. Keeps static talking heads + b-roll "sticky".
     auto_motion = edp.get("auto_motion", True)
 
+    # Brand kit: applies the accent to this cfg (callouts/stars/captions) and lints the
+    # copy against the approved-claims registry. Warnings print; `forwrdcut lint` gates.
+    if edp.get("brand"):
+        from ..strategy.brand import load_brand, apply_brand, lint_edp
+        kit = load_brand(cfg, edp["brand"])
+        apply_brand(cfg, kit)
+        for issue in lint_edp(edp, kit):
+            print(f"  BRAND LINT ⚠  {issue}")
+
     tmpdir = Path(tempfile.mkdtemp(prefix="forwrdcut_tl_"))
 
     # ---- PREPARE (serial): resolve everything deterministic per segment ------------

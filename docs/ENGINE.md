@@ -65,6 +65,16 @@ Plain JSON, the single input to the timeline assembler. Author it, validate it, 
 - `cta` — orange pill button. `badge` — small brand/credibility chip. `stars` — rating row
   + text. `progress` — thin retention bar. Each takes `start`/`end` (absolute seconds) and `position`.
 
+### Brand kits (`strategy/brand.py` + `brands/*.toml`) — brands as config, claims as law
+Copy `brands/example.toml` to `brands/<name>.toml`: accent color, logos, banned words, and
+an **approved-claims registry**. An EDP with `"brand": "<name>"` gets the accent applied at
+render and its copy linted: any VO/overlay text with numbers or claim language
+(stars/reviews/warranty/%/$…) must be covered by the registry — spoken numbers are
+normalized ("four point seven stars" == "4.7 stars", "six hundred D" == "600D"). Banned
+words and on-screen em dashes are flagged too. Render prints warnings; `forwrdcut lint
+--plan x.edp.json` gates (non-zero exit). It lints *stats and claim language* — a wrong
+feature description with no numbers still needs human/vision review.
+
 ### Library brain (`analysis/library.py`) — find the shot, flag the junk
 `forwrdcut find --q "magnetic ball pocket" [--dir FOLDER]…` ranks clips by transcript +
 filename match and answers with the best transcript **window and timestamp** — shot-finding
