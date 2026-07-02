@@ -271,6 +271,16 @@ def qc(path: str, loudnorm_expected: bool = True) -> dict:
 
 
 @mcp.tool()
+def platform_brief(platform: str = "meta_ad") -> dict:
+    """Best-practice brief for a target format (meta_ad, youtube_ad, youtube_bumper,
+    shorts_ad, reels_organic, tiktok_organic, landing_hero): spec, hook rule, structure,
+    safe zones, do/don't, and the EDP settings that implement it. Read this BEFORE
+    planning an ad or social edit."""
+    from ..strategy.briefs import get_brief
+    return get_brief(platform)
+
+
+@mcp.tool()
 def music_library(rescan: bool = False) -> list[dict]:
     """List licensed music tracks (BPM/mood/duration detected). Drop files into
     assets/music/licensed/ to add; procedural beds are the fallback."""

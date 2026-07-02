@@ -77,7 +77,10 @@ This file is the editor's standing brain. Read it first, every session. Depth li
 | TikTok / IG Reels (organic) | 9:16 | ON | <1s native | 7–34s | authentic > salesy; trending sound slot |
 | Landing-page hero loop | native | muted | n/a | short | true product color, no grade, clean callouts |
 
-Full specs + safe zones in [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
+Full specs + safe zones in [`docs/PLATFORMS.md`](docs/PLATFORMS.md). **Before planning any
+ad or social edit, pull the per-format brief** — `forwrdcut brief --platform meta_ad` (CLI)
+or the `platform_brief` MCP tool — it returns the hook rule, structure, safe zones,
+do/don't list, and the EDP settings that implement them.
 
 ## 5. Brand-voice & claims discipline (don't undermine a great edit with bad copy)
 

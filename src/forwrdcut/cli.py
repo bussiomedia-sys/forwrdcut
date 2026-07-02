@@ -179,6 +179,21 @@ def cmd_template(args) -> int:
     return 0
 
 
+def cmd_brief(args) -> int:
+    from .strategy.briefs import render_brief, BRIEFS
+
+    if args.list:
+        for k in sorted(BRIEFS):
+            print(f"  {k:16s} {BRIEFS[k]['name']}")
+        return 0
+    try:
+        print(render_brief(args.platform))
+        return 0
+    except KeyError as e:
+        print(e.args[0])
+        return 2
+
+
 def cmd_init(args) -> int:
     from .scaffold import init_project
 
@@ -493,6 +508,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--cinematic", action="store_true", help="apply letterbox + vignette look")
     sp.add_argument("--out", default=None)
     sp.set_defaults(func=cmd_template)
+
+    sp = sub.add_parser("brief", help="per-platform best-practice brief (meta_ad, youtube_ad, ...)")
+    sp.add_argument("--platform", default="meta_ad")
+    sp.add_argument("--list", action="store_true", help="list available platform briefs")
+    sp.set_defaults(func=cmd_brief)
 
     sp = sub.add_parser("init", help="scaffold a new ForwrdCut project here (config + folders)")
     sp.add_argument("--dir", default=".", help="where to scaffold (default: current dir)")

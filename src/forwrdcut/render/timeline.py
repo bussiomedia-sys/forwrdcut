@@ -147,6 +147,11 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
     fps = int(tgt.get("fps") or rcfg.get("fps") or 30) or 30
     position = edp.get("captions", {}).get("position", "center")
     cap_style = edp.get("captions", {}).get("style")
+    # per-EDP safe-zone overrides (e.g. Meta Reels ads need safe_bottom_frac: 0.35 —
+    # the ad UI covers more of the frame than organic; see `forwrdcut brief`)
+    for k in ("safe_top_frac", "safe_bottom_frac", "safe_side_frac"):
+        if k in edp.get("captions", {}):
+            cfg.data.setdefault("captions", {})[k] = float(edp["captions"][k])
     mute = bool(edp.get("mute_source", False))
 
     voice = edp.get("voice")
