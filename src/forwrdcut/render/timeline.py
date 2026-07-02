@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,9 +21,10 @@ from .pipeline import render_segment, render_vo_segment
 from ..analysis.emphasis import emphasis_pulses
 
 # one-pass loudnorm can overshoot true peak (QC caught this on its first dogfood render).
-# The trailing limiter caps sample peak at -2 dB; inter-sample overshoot (~0.6 dB) then
-# still lands under the -1 dBTP delivery target.
-_LOUDNORM = "loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.79:level=disabled"
+# The trailing limiter caps sample peak at -3 dB: AAC re-encoding adds inter-sample
+# overshoot (measured up to ~1.8 dB on hard-limited mixes), so -3 dB masters keep the
+# encoded deliverable safely under the QC gate.
+_LOUDNORM = "loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.71:level=disabled"
 
 
 def _resolve_caption(cfg: Config, seg: dict):
@@ -96,6 +98,39 @@ def _normalize_caption_words(words: list[dict]) -> list[dict]:
     return fixed
 
 
+_SEG_CACHE_SALT = "seg-v1"      # bump when segment-render semantics change
+
+
+def _segment_key(cfg: Config, job: dict, tw: int, th: int, fps: int, position: str,
+                 cap_style: str | None, mute: bool, voice: str | None) -> str:
+    """Content hash of everything that affects one rendered segment. Same key ==
+    byte-equivalent segment -> safe to reuse across renders (incremental editing:
+    change one beat, re-render one beat)."""
+    from .grade import grade_chain
+    seg = job["seg"]
+    src = Path(seg["source"])
+    try:
+        st = src.stat()
+        src_id = [str(src.resolve()), st.st_mtime_ns, st.st_size]
+    except OSError:
+        src_id = [str(src), 0, 0]
+    material = {
+        "salt": _SEG_CACHE_SALT, "kind": job["kind"], "src": src_id,
+        "in": seg.get("in"), "out": seg.get("out"),
+        "reframe": seg.get("reframe"), "motion": job["motion"], "shake": job["shake"],
+        "speed": job.get("speed", 1.0), "emph": job.get("emph"),
+        "vo": seg.get("voiceover"), "voice": voice, "mute": mute,
+        "words": hashlib.sha1(json.dumps(job.get("words") or [],
+                                         sort_keys=True).encode()).hexdigest(),
+        "caption_text": job.get("caption_text"),
+        "target": [tw, th, fps], "position": position, "style": cap_style,
+        "grade": grade_chain(cfg), "captions_cfg": cfg.captions,
+        "enc": [cfg.render.get("hw_encoder"), cfg.render.get("sw_encoder"),
+                cfg.render.get("video_bitrate"), cfg.render.get("audio_bitrate")],
+    }
+    return hashlib.sha1(json.dumps(material, sort_keys=True, default=str).encode()).hexdigest()[:24]
+
+
 def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
                     *, preview: bool = False) -> dict:
     cfg = cfg or load_config()
@@ -120,13 +155,16 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
     auto_motion = edp.get("auto_motion", True)
 
     tmpdir = Path(tempfile.mkdtemp(prefix="forwrdcut_tl_"))
-    parts: list[Path] = []
+
+    # ---- PREPARE (serial): resolve everything deterministic per segment ------------
+    # Transcription/TTS are cached and NOT thread-safe on first model load, so all of
+    # that happens here; the expensive ffmpeg renders then run in parallel below.
+    jobs: list[dict] = []
     for i, seg in enumerate(edp["segments"]):
-        part = tmpdir / f"seg_{i:03d}.mp4"
         default_mtn = ("zoom_in" if i % 2 == 0 else "zoom_out") if auto_motion else None
         mtn = seg.get("motion", default_mtn)
-        # Emphasis-aware dynamics: punch on the important words (opt-in per EDP/segment).
         emph_on = seg.get("emphasis", edp.get("emphasis", False))
+        job = {"i": i, "seg": seg, "motion": mtn, "shake": float(seg.get("shake", 0.0))}
         if seg.get("voiceover"):
             from ..audio.tts import synthesize
             from ..analysis.transcribe import transcribe
@@ -149,21 +187,53 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
             # designed callout overlay carries the on-screen text instead).
             if seg.get("caption") == "none":
                 words = []
-            render_vo_segment(seg["source"], seg["in"], vo, words, part, cfg=cfg,
-                              tw=tw, th=th, target_fps=fps, position=position,
-                              caption_style=cap_style, reframe_mode=seg.get("reframe"),
-                              motion=mtn, emphasis_times=emph,
-                              shake=float(seg.get("shake", 0.0)))
+            job.update(kind="vo", vo_wav=str(vo), words=words, emph=emph)
         else:
             words, caption_text = _resolve_caption(cfg, seg)
             emph = emphasis_pulses(words, seg["in"], seg["out"]) if (emph_on and words) else None
-            render_segment(seg["source"], seg["in"], seg["out"], part, cfg=cfg, tw=tw, th=th,
-                           target_fps=fps, words=words, caption_text=caption_text,
+            job.update(kind="seg", words=words, caption_text=caption_text, emph=emph,
+                       speed=float(seg.get("speed", 1.0)))
+        job["key"] = _segment_key(cfg, job, tw, th, fps, position, cap_style, mute, voice)
+        jobs.append(job)
+
+    # ---- RENDER (parallel, cached): editing one beat re-renders one beat -----------
+    use_cache = bool(rcfg.get("segment_cache", True)) and not preview
+    seg_cache = cfg.cache_dir / "segments"
+    seg_cache.mkdir(parents=True, exist_ok=True)
+
+    def _dest(job) -> Path:
+        return (seg_cache / f"{job['key']}.mp4") if use_cache \
+            else (tmpdir / f"seg_{job['i']:03d}.mp4")
+
+    def _render_job(job) -> None:
+        dest = _dest(job)
+        if use_cache and dest.exists():
+            return
+        work = dest.with_suffix(".part.mp4")     # atomic: never leave a torn cache entry
+        seg, mtn = job["seg"], job["motion"]
+        if job["kind"] == "vo":
+            render_vo_segment(seg["source"], seg["in"], job["vo_wav"], job["words"], work,
+                              cfg=cfg, tw=tw, th=th, target_fps=fps, position=position,
+                              caption_style=cap_style, reframe_mode=seg.get("reframe"),
+                              motion=mtn, emphasis_times=job["emph"], shake=job["shake"])
+        else:
+            render_segment(seg["source"], seg["in"], seg["out"], work, cfg=cfg, tw=tw, th=th,
+                           target_fps=fps, words=job["words"], caption_text=job["caption_text"],
                            position=position, reframe_mode=seg.get("reframe"),
                            caption_style=cap_style, mute_audio=mute, motion=mtn,
-                           emphasis_times=emph, speed=float(seg.get("speed", 1.0)),
-                           shake=float(seg.get("shake", 0.0)))
-        parts.append(part)
+                           emphasis_times=job["emph"], speed=job["speed"], shake=job["shake"])
+        work.replace(dest)
+
+    todo = [j for j in jobs if not (use_cache and _dest(j).exists())]
+    workers = max(1, int(rcfg.get("parallel_workers", min(4, (os.cpu_count() or 2) // 2))))
+    if len(todo) > 1 and workers > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            list(ex.map(_render_job, todo))      # list() re-raises any worker exception
+    else:
+        for j in todo:
+            _render_job(j)
+    parts: list[Path] = [_dest(j) for j in jobs]
 
     cues = edp.get("sfx") or []
     do_sfx = bool(cues) and bool(cfg.data.get("sfx", {}).get("enabled", True))

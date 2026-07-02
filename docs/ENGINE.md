@@ -128,6 +128,14 @@ Brand, paths, render target/encoder, caption style + safe zones + brand colors, 
 music/sfx gain + ducking, reframe (smart/track), transcription model, vision model. Per-EDP
 `target`/`captions`/etc. override config defaults.
 
+### Incremental + parallel rendering
+Segments are content-hashed (source mtime/size + every render-affecting param) and cached
+in `cache/segments/` — re-rendering an EDP reuses untouched beats, so **editing one beat
+re-renders one beat** (measured: 6.6s fresh → 1.0s rerun → 1.3s one-beat edit). Fresh
+segments render in parallel (`[render] parallel_workers`, default = half your cores, ≤4).
+Disable with `[render] segment_cache = false`; the cache dir is safe to delete anytime.
+Previews always render fresh.
+
 ## Conventions
 - Sources read-only; outputs to `renders/`; finals filed by the human into their library.
 - Every render emits an `.edp.json` so any cut is reproducible and reviewable.

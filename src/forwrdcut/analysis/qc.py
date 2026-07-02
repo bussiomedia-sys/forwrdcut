@@ -87,7 +87,7 @@ def evaluate(video_dur: float | None, audio_dur: float | None, lufs: float | Non
     if loudnorm_expected and lufs is not None and abs(lufs - LUFS_TARGET) > LUFS_TOL:
         issues.append(f"loudness {lufs:.1f} LUFS is off the {LUFS_TARGET:.0f} target (±{LUFS_TOL:.0f})")
     if peak is not None and peak > PEAK_MAX:
-        issues.append(f"true peak {peak:.1f} dBFS above {PEAK_MAX:.0f} (clipping risk)")
+        issues.append(f"true peak {peak:.1f} dBFS above {PEAK_MAX:.1f} (clipping risk)")
     for f in freezes:
         # a freeze that runs to the very end is usually the intended end-card hold
         if f["start"] + f["duration"] < total_dur - 0.75:
