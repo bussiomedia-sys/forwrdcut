@@ -179,6 +179,37 @@ def cmd_template(args) -> int:
     return 0
 
 
+def cmd_find(args) -> int:
+    from .analysis.library import find
+
+    cfg = load_config(args.config)
+    hits = find(cfg, args.q, limit=args.limit, dirs=args.dir or None,
+                transcribe_missing=args.transcribe)
+    if not hits:
+        print(f'No matches for "{args.q}". (Tip: --transcribe indexes clips missing transcripts.)')
+        return 1
+    for h in hits:
+        print(f"[{h['score']:4.1f}] {h['orientation']:9s} {Path(h['path']).name}")
+        if h["hit"]:
+            print(f"       @ {h['hit']['start']}s  \"{h['hit']['text'][:90]}\"")
+    return 0
+
+
+def cmd_audit(args) -> int:
+    from .analysis.library import audit
+
+    cfg = load_config(args.config)
+    terms = args.terms.split(",") if args.terms else None
+    flagged = audit(cfg, expected_terms=terms, dirs=args.dir or None)
+    if not flagged:
+        print("Library clean — no junk suspects.")
+        return 0
+    print(f"{len(flagged)} suspect clip(s):")
+    for f in flagged:
+        print(f"  ! {Path(f['path']).name}\n    {f['reason']}")
+    return 1
+
+
 def cmd_music(args) -> int:
     from .audio.music import scan_music
 
@@ -417,6 +448,22 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--cinematic", action="store_true", help="apply letterbox + vignette look")
     sp.add_argument("--out", default=None)
     sp.set_defaults(func=cmd_template)
+
+    sp = sub.add_parser("find", help='shot search: `find --q "clamshell open paddles"` -> clip @ timestamp')
+    sp.add_argument("--q", required=True, help="what you're looking for, plain words")
+    sp.add_argument("--limit", type=int, default=8)
+    sp.add_argument("--transcribe", action="store_true",
+                    help="transcribe clips that have no cached transcript (slower, once)")
+    sp.add_argument("--dir", action="append", default=[],
+                    help="search this folder (repeatable; default: the indexed source library)")
+    sp.set_defaults(func=cmd_find)
+
+    sp = sub.add_parser("audit", help="flag likely-junk clips (speech matches no expected terms)")
+    sp.add_argument("--terms", default=None,
+                    help="comma-separated expected terms (default: [library] expected_terms)")
+    sp.add_argument("--dir", action="append", default=[],
+                    help="audit this folder (repeatable; default: the indexed source library)")
+    sp.set_defaults(func=cmd_audit)
 
     sp = sub.add_parser("music", help="list the licensed music library (BPM/mood detected)")
     sp.add_argument("--rescan", action="store_true", help="ignore the metadata cache")

@@ -65,6 +65,14 @@ Plain JSON, the single input to the timeline assembler. Author it, validate it, 
 - `cta` — orange pill button. `badge` — small brand/credibility chip. `stars` — rating row
   + text. `progress` — thin retention bar. Each takes `start`/`end` (absolute seconds) and `position`.
 
+### Library brain (`analysis/library.py`) — find the shot, flag the junk
+`forwrdcut find --q "magnetic ball pocket" [--dir FOLDER]…` ranks clips by transcript +
+filename match and answers with the best transcript **window and timestamp** — shot-finding
+in seconds instead of contact-sheet archaeology. `--transcribe` indexes clips that lack a
+cached transcript. `forwrdcut audit [--terms a,b,c]` flags speech clips whose transcript
+matches none of the expected terms (mislabeled downloads); note it audits *audio* — footage
+whose picture doesn't match its sound needs the vision-QC tier.
+
 ### Music (`audio/music.py`) — licensed tracks first, procedural beds as fallback
 Drop licensed audio into `assets/music/licensed/` (gitignored — never committed) or set
 `[music] licensed_dir` in config.toml. The library detects BPM (`analysis/beats.py`),
