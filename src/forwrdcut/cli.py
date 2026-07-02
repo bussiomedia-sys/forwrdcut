@@ -179,6 +179,31 @@ def cmd_template(args) -> int:
     return 0
 
 
+def cmd_init(args) -> int:
+    from .scaffold import init_project
+
+    root = Path(args.dir).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    for a in init_project(root, force=args.force):
+        print(f"  {a}")
+    print("\nNext steps:")
+    print("  1. drop clips into media/source/  (photos work too)")
+    print("  2. forwrdcut doctor            # verify your environment")
+    print('  3. forwrdcut short --clip media/source/yourclip.mp4   # first autonomous edit')
+    return 0
+
+
+def cmd_doctor(args) -> int:
+    from .scaffold import doctor
+
+    lines, fails = doctor()
+    print("ForwrdCut doctor:")
+    for ln in lines:
+        print(ln)
+    print(f"\n{'✓ ready to edit' if not fails else f'✗ {fails} issue(s) to fix'}")
+    return 1 if fails else 0
+
+
 def cmd_lint(args) -> int:
     import json as _json
     from .strategy.brand import load_brand, lint_edp
@@ -468,6 +493,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--cinematic", action="store_true", help="apply letterbox + vignette look")
     sp.add_argument("--out", default=None)
     sp.set_defaults(func=cmd_template)
+
+    sp = sub.add_parser("init", help="scaffold a new ForwrdCut project here (config + folders)")
+    sp.add_argument("--dir", default=".", help="where to scaffold (default: current dir)")
+    sp.add_argument("--force", action="store_true", help="overwrite an existing config.toml")
+    sp.set_defaults(func=cmd_init)
+
+    sp = sub.add_parser("doctor", help="check your environment and say exactly what to fix")
+    sp.set_defaults(func=cmd_doctor)
 
     sp = sub.add_parser("lint", help="check an EDP's copy against a brand kit's claims registry")
     sp.add_argument("--plan", required=True, help="path to the .edp.json")

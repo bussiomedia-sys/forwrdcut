@@ -79,7 +79,9 @@ def find_config(start: Path | None = None) -> Path:
     fallback = PROJECT_ROOT / "config.toml"
     if fallback.exists():
         return fallback
-    raise FileNotFoundError("config.toml not found (searched upward from cwd and project root)")
+    raise FileNotFoundError(
+        "config.toml not found (searched upward from cwd and the project root). "
+        "New here? Run `forwrdcut init` in your project folder, then `forwrdcut doctor`.")
 
 
 @lru_cache(maxsize=4)

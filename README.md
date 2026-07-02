@@ -2,100 +2,99 @@
 
 # ForwrdCut
 
-**An agent-driven AI video editor that cuts ads and social content like the best-performing posts on the platform.**
+**The AI video editor built to be driven by an agent — it researches, cuts, checks itself, and ships.**
 
-Local-first · non-destructive · reproducible · built to be driven by an AI agent end-to-end.
+[![ci](https://github.com/bussiomedia-sys/forwrdcut/actions/workflows/ci.yml/badge.svg)](https://github.com/bussiomedia-sys/forwrdcut/actions)
+Local-first · non-destructive · reproducible · MIT
 
 </div>
 
 ---
 
-ForwrdCut is a video-editing **engine plus an editor's brain**. The engine does the media work
-(FFmpeg under the hood); the brain — [`AGENTS.md`](AGENTS.md) and [`docs/`](docs/) — is a
-distilled playbook that lets an AI agent (e.g. Claude Code) research, plan, cut, and ship
-world-class short-form video without a human touching a timeline.
+ForwrdCut is a video-editing **engine plus an editor's brain**. The engine does the media
+work (FFmpeg under the hood). The brain — [`AGENTS.md`](AGENTS.md) + [`docs/`](docs/) — is a
+distilled playbook of hooks, retention mechanics, per-platform best practices, and claims
+discipline, so an AI agent (e.g. **Claude Code**) can research a product, find the shots,
+write and voice a script, cut the edit, QC its own render, and ship — without a human
+touching a timeline.
 
-It was built in-house at [FORWRD](https://forwrd.co) to produce real, shipping ad creative, and
-it's open-sourced so anyone can run an agent that edits at a high bar.
+Built in-house at [FORWRD](https://forwrd.co) to produce real, shipping ad creative;
+open-sourced so anyone can run an agent that edits at a high bar.
 
-## Why it's different
-
-- **It has taste, on purpose.** The repo ships an opinionated editing standard (hooks, retention
-  mechanics, the ABCD ad framework, per-platform playbooks, brand-voice discipline) so the agent
-  defaults to edits that *perform*, not just edits that render.
-- **Audio-first, measured timing.** Voiceover (local neural TTS) is the spine; cut lengths are
-  measured from the synthesized audio so callouts and captions land on the beat.
-- **Designed graphics, not stock.** Big bold callouts, brand badges, star proof, CTA buttons,
-  and generated end cards — composited to a brand system.
-- **Every cut is an EDP.** Edits are plain-JSON **Edit Decision Plans**: reviewable, diffable,
-  reproducible. The same EDP renders 16:9, 9:16, or 4:5.
-- **Local + private.** FFmpeg + on-device Whisper + on-device Kokoro TTS. No footage leaves your
-  machine; no API key required for the core loop.
-
-## What it does
-
-- Index & analyze footage: scene detection, word-level transcription, silence/loudness, hook &
-  highlight scoring, auto jump-cuts (dead-air + filler removal), subject-tracked reframing.
-- Plan: rule-based + agent-authored EDPs, a one-call **autonomous edit** (`forwrdcut short`:
-  raw clip → finished Short), and **beat-timed templates** (`forwrdcut template`).
-- Render: multi-segment timeline, smart reframe (16:9 / 9:16 / 4:5), animated word-synced
-  captions, designed overlays/callouts, color grade, ducked procedural music, loudness norm.
-- Motion & rhythm: **eased zoom**, **velocity/speed ramps**, **camera shake**, **emphasis
-  scale-pops** on key words, **beat detection** + beat-aligned cuts.
-- Cinematic looks: letterbox bars, vignette, bloom/glow, film grain (opt-in finishing pass).
-- Voiceover: pluggable TTS (Kokoro local · ElevenLabs · macOS `say`) with a brand lexicon.
-- Drive it from Python, the `forwrdcut` CLI, or the **MCP server** for conversational control.
-
-## Quickstart
+## Quickstart (3 commands)
 
 ```bash
-# macOS / Apple Silicon. Requires FFmpeg (with VideoToolbox) + Python 3.12.
-python3.12 -m venv .venv
-.venv/bin/pip install -e .            # core
-.venv/bin/pip install -e ".[voice]"   # + local voiceover (Kokoro)
-
-# Download the Kokoro voice model into models/kokoro/ (see docs/ENGINE.md), then:
-.venv/bin/forwrdcut scan               # index a footage library
-.venv/bin/forwrdcut transcribe path/to/clip.mp4
+pip install -e .            # in a Python 3.12 venv; FFmpeg required (brew/apt install ffmpeg)
+forwrdcut init              # scaffold a project: config, folders, example brand kit
+forwrdcut doctor            # verifies your setup and says exactly what to fix
 ```
 
-Author an EDP and render it (see [`docs/ENGINE.md`](docs/ENGINE.md) for the full schema and the
-measure-pass pattern, and [`examples/`](examples/) for real production scripts):
+Then drop clips (or photos) into `media/source/` and:
 
-```python
-from forwrdcut.config import load_config
-from forwrdcut.render.timeline import render_timeline
-edp = { "version": 1, "project": "demo", "target": {"width": 1920, "height": 1080, "fps": 30}, ... }
-render_timeline(edp, "renders/demo.mp4", load_config())
+```bash
+forwrdcut short --clip media/source/yourclip.mp4        # raw clip -> finished Short
+forwrdcut template --name photo_slideshow --clips photos/*.jpg --aspect 9x16
+forwrdcut find --q "the moment he opens the bag"        # shot search -> clip @ timestamp
+forwrdcut qc --file renders/yourclip_short_9x16.mp4     # machine-checks the render
 ```
 
-## For agents
+**Best with Claude Code:** open this repo (or your `forwrdcut init` project) in Claude Code and
+just say what you want — *"make me a Meta ad for this product page"*. The agent reads
+[`AGENTS.md`](AGENTS.md) and the [platform playbooks](docs/PLATFORMS.md) and runs the whole
+production loop. An MCP server (`forwrdcut-mcp`) exposes 20+ tools for conversational control.
 
-Point your coding agent at this repo and it reads [`AGENTS.md`](AGENTS.md) (and `CLAUDE.md`) as a
-standing operating manual: the editing standard, the production loop (research → footage → script
-+ VO → EDP → render → QC), the [platform playbooks](docs/PLATFORMS.md), and the
-[engine reference](docs/ENGINE.md). There's a Claude Code skill at
-[`.claude/skills/produce-ad`](.claude/skills/produce-ad/SKILL.md).
+## What makes it different
+
+- **It has taste, on purpose.** An opinionated editing standard ships with the repo — hooks in
+  the first second, the 5-second skip wall, ABCD ad structure, one-idea-per-moment text rules,
+  platform safe zones. The agent defaults to edits that *perform*, not just edits that render.
+- **It checks its own work.** `forwrdcut qc` gates every render (loudness, clipping, stream
+  mismatch, frozen frames, black opens + a contact sheet). Brand kits lint the *copy*: any
+  stat or claim in a VO line must exist in your approved-claims registry — spoken numbers
+  normalize, so "four point seven stars" matches "4.7 stars".
+- **It iterates at conversation speed.** Segments are content-hashed and cached: editing one
+  beat re-renders one beat (measured 6.6s fresh → 1.0s rerun → 1.3s one-beat change).
+- **Every cut is an EDP** — a plain-JSON Edit Decision Plan: reviewable, diffable, and
+  re-renderable to 16:9 / 9:16 / 4:5 / 1:1 from the same plan.
+- **Local + private.** FFmpeg, on-device Whisper, on-device Kokoro TTS. No footage leaves
+  your machine; no API key required for the core loop.
+
+## Capabilities
+
+| | |
+|---|---|
+| **Understand** | library scan · word-level transcription · scene detect · hook/highlight scoring · **shot search with timestamps** (`find`) · junk audit · beat detection |
+| **Decide** | autonomous one-call edit (`short`) · beat-timed templates (video, features, photo slideshows) · rule + agent planning · brand kits |
+| **Cut** | jump-cuts (dead air + fillers) · eased zoom · speed/velocity · camera shake · emphasis scale-pops on key words · beat-aligned cuts · smart reframe |
+| **Dress** | word-synced animated captions (4 styles, safe-zoned) · designed callouts/CTA/badges/stars · cinematic looks (letterbox·vignette·glow·grain) · color grade/LUT · generated end cards |
+| **Sound** | pluggable TTS (Kokoro local · ElevenLabs · `say`) · licensed-music library with BPM/mood auto-detect · procedural beds fallback · ducking · loudnorm + true-peak limiter |
+| **Trust** | render QC gate · claims lint · reproducible `.edp.json` sidecars · incremental cache · 49-test suite run in CI with ffmpeg |
+
+## The production loop the agent runs
+
+1. **Research** the product page/reviews → approved claims + angles
+2. **Find footage** (`find`, contact sheets) → map shots to beats
+3. **Script + VO first** — audio is the spine; cut lengths are measured from it
+4. **Author the EDP** → render (cached, parallel)
+5. **QC** frames + audio (`qc`), lint the copy (`lint`), fix, re-render
+6. Derive cutdowns/variants per platform
 
 ## Repo layout
 
 ```
-AGENTS.md          the editor's brain (read this first)
-CLAUDE.md          pointer for Claude Code
-docs/              EDITING_PLAYBOOK · PLATFORMS · ENGINE · briefs/
-src/forwrdcut/     the engine (analysis · strategy · render · audio · mcp · cli)
-assets/            brand font (Inter, OFL), procedural music beds, sfx
+AGENTS.md          the editor's brain (agents read this first)
+docs/              EDITING_PLAYBOOK · PLATFORMS (per-format best practices) · ENGINE · research/
+src/forwrdcut/     analysis · strategy · render · audio · media · mcp · cli
+brands/            example brand kit (accent, banned words, approved-claims registry)
+assets/            Inter font (OFL) · procedural music beds · put licensed music in music/licensed/
 examples/          real production scripts (reference patterns)
-.claude/skills/    produce-ad skill
-config.toml        brand, paths, render, captions, grade, music config
 ```
 
 ## Contributing
 
-PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). The north star: does this make the agent's
-edits *better* (more scroll-stopping, higher view-through, more on-brand), or the engine more
-capable/reliable? Keep edits non-destructive and every render reproducible.
+PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
+The bar for merge isn't "it works" — it's "the edit is visibly better."
 
 ## License
 
-[MIT](LICENSE) © FORWRD. The bundled Inter font is licensed under the SIL Open Font License.
+[MIT](LICENSE) © FORWRD. Bundled Inter font under the SIL Open Font License.
