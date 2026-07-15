@@ -1,0 +1,71 @@
+# ForwrdCut project configuration — edit to taste. Paths resolve relative to this file.
+
+[brand]
+name = "yourbrand"                  # your brand/channel name
+niche = "your niche"                # drives trend research grounding
+platforms = ["tiktok", "reels", "shorts"]
+
+[paths]
+source_dir = "media/source"         # READ-ONLY. Put (or symlink) source clips here.
+output_dir = "renders"
+preview_dir = "renders/previews"
+cache_dir = "cache"
+db_path = "cache/library.db"
+sfx_dir = "assets/sfx"
+trends_dir = "cache/trends"
+
+[render]
+hw_encoder = "h264_videotoolbox"    # Apple Silicon HW encode; auto-falls back to sw_encoder
+sw_encoder = "libx264"              # used automatically on Linux/Windows/Intel
+target_width = 1080
+target_height = 1920                # 9:16 vertical default
+fps = 30
+video_bitrate = "10M"
+audio_bitrate = "192k"
+preview_width = 540
+preview_height = 960
+reframe_mode = "cover"              # cover (center smart-crop) | blur_pad
+segment_cache = true                # incremental renders: edit one beat, re-render one beat
+
+[captions]
+style = "box-pop"                   # box-pop | bold-pop | karaoke | clean-minimal
+font = "auto"                       # "auto" finds a bold system font; or path to a .ttf
+fill = "#FFFFFF"
+stroke = "#000000"
+highlight = "#EA6024"               # emphasis-word accent (brand kits override per-EDP)
+# platform SAFE ZONES (fraction of frame) — keeps captions clear of feed UI:
+safe_top_frac = 0.13
+safe_bottom_frac = 0.24
+safe_side_frac = 0.08
+
+[grade]
+enabled = true
+preset = "punch"                    # punch | warm | vibrant | clean
+# lut = "assets/luts/your.cube"     # optional custom LUT
+
+[sfx]
+enabled = true
+gain = 0.55
+
+[music]
+gain = 0.12
+duck = true
+# licensed_dir = "assets/music/licensed"   # drop licensed tracks here (never commit them)
+
+[library]
+# expected_terms = ["yourbrand", "your product"]   # `forwrdcut audit` junk detection
+
+[reframe]
+smart = true
+pan = true
+sample_fps = 3.0
+min_face_ratio = 0.35
+
+[transcription]
+model = "small"                     # faster-whisper: tiny|base|small|medium|large-v3
+language = "en"
+compute_type = "int8"
+
+[vision]
+enabled = false                     # set true + ANTHROPIC_API_KEY for vision descriptions
+model = "claude-opus-4-8"

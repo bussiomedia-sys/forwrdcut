@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Models (download separately — see docs/ENGINE.md). Large binaries, not for git.
+# Leading slash = repo root only, so these never match same-named CODE packages
+# nested under src/ (e.g. src/forwrdcut/media/ is the ffmpeg/ffprobe wrappers).
+/models/
+
+# Working data — never commit footage, renders, caches, or analysis output
+/media/
+/cache/
+/renders/
+/outputs/
+
+# Licensed music: yours to use, NOT yours to redistribute — never commit it
+assets/music/licensed/
+*.mp4
+*.mov
+*.MOV
+*.MP4
+*.wav
+# Only the engine's own PROCEDURAL beds ship; client/licensed tracks never do
+!assets/music/bed_*.wav
+!assets/sfx/*.wav
+
+# Client / project-specific content — this repo is a clean, generic engine only.
+# Brand kits, generated brand assets, per-project ad scripts, and session logs stay local.
+/.omc/
+/brands/*.toml
+!/brands/example.toml
+/assets/brand/
+/scratch/
+# Per-project ad scripts live locally, never in the generic engine repo
+examples/*_client.py
+examples/parkmarket_*.py
+
+# Secrets / local config
+.env
+.env.*
+*.local.toml
+secrets.*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
