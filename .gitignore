@@ -28,20 +28,28 @@ assets/music/licensed/
 *.MOV
 *.MP4
 *.wav
+*.m4a
+*.mp3
+*.aac
 # Only the engine's own PROCEDURAL beds ship; client/licensed tracks never do
+/assets/music/*/
 !assets/music/bed_*.wav
 !assets/sfx/*.wav
 
 # Client / project-specific content — this repo is a clean, generic engine only.
 # Brand kits, generated brand assets, per-project ad scripts, and session logs stay local.
-/.omc/
+.omc/
 /brands/*.toml
 !/brands/example.toml
 /assets/brand/
 /scratch/
-# Per-project ad scripts live locally, never in the generic engine repo
-examples/*_client.py
-examples/parkmarket_*.py
+# Per-project ad scripts live locally, never in the generic engine repo. Allowlist:
+# only the generic examples ship; add a `!` line here for any new generic example.
+/examples/*.py
+!/examples/quickstart_ad.py
+
+# Compiled local tools (build from source: see the header of each tools/*.swift)
+/tools/hdr2sdr
 
 # Secrets / local config
 .env

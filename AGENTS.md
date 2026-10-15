@@ -113,6 +113,14 @@ Shortcuts: `forwrdcut short` (one-call autonomous edit from a raw clip) and `for
 and caption-suppression mechanics are in [`docs/ENGINE.md`](docs/ENGINE.md). Local-first (FFmpeg),
 non-destructive (sources never modified), reproducible (every render writes an `.edp.json`).
 
+**Paid social (Meta / Instagram ads): use the ads layer, not a one-off script.** `forwrdcut ads-build
+spec.toml` builds a batch from a short spec (shots, native text, music, 9:16/4:5/1:1) and runs
+`ads-qc` on it: specs, Meta safe zones, text contrast, orphan words, engagement bait, brand copy,
+product size in frame one, and near-duplicate openings. `forwrdcut shots-find` finds big, steady
+product moments in silent footage. Trend formats (`ads/formats.py`) turn found shots into
+beat-timed ads; check `TRENDS` dates and refresh the research when they're over ~6 weeks old.
+Details: [`docs/ENGINE.md`](docs/ENGINE.md) → "Paid-social ads layer".
+
 ## 8. The done bar (QC checklist before you call it finished)
 
 ☐ Hook lands brand + curiosity + a reason to stay in the first second (and before 0:05 on ads).

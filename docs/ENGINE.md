@@ -123,6 +123,25 @@ slots with longer dwell + optional titles). `render_template(cfg, name, clips, o
 aspect=…, music_style=…, cinematic=…)` probes clips, fills the slots, and renders. CLI: `forwrdcut
 template --name beat_slideshow --clips … --aspect 9x16 [--cinematic]`.
 
+### Paid-social ads layer (`ads/`): batches, native text, framing, QC, shots, trend formats
+
+Built for Meta/Instagram click-ads, where the product is the hook and the ad should look like a post.
+
+| Module | What it does |
+|---|---|
+| `ads/placements.py` | Output sizes (`916`, `45`, `11`) and the pixels each placement's UI covers (Reels and Stories: 14% top, 35% bottom, 6% sides, per Meta's ads guide 2026-09). `safe_box`, `ui_boxes`. |
+| `ads/text.py` | Native in-app text: `ig_box_white`, `ig_box_dark`, `ig_plain`, `outline`, `typewriter`, `brand_pill`. ~50px, balanced wrapping with no orphan word, inline colour emoji, placed inside the safe zone and off the product. |
+| `ads/framing.py` | Finds products by colour signature (`[products.<id>]` in the brand kit: `hues`, `sat_min/max`, `val_min/max`) and plans a crop per ratio that keeps the product in the middle of the safe zone. |
+| `ads/audio.py` | Music bed: source muted, -14 LUFS, forced 48 kHz (loudnorm alone emits 96 kHz), optional `drop_at` beat-drop. |
+| `ads/build.py` | `build_batch(spec)` from TOML or a dict: `[[ad]]` with `beats` `[clip, in, out]`, `text` (one line, one per beat, or timed dicts with `y`/`dy`/`style`), `track`, `variants`. Lints copy first (brand kit + engagement bait; `10/10` and `1.` list numbers are idioms, not claims). Writes `_qc/<name>.json` sidecars. |
+| `ads/qc.py` | `qc_batch(dir, kit)`: FAIL on size, audio, loudness, black open, text under UI, low contrast (< 3:1 for unboxed text), orphan words, copy. WARN on length, product < 22% of frame height in frame one, and two different edits opening on the same picture (Meta groups look-alikes). Review sheet with UI zones shaded. |
+| `ads/shots.py` | Visual index of silent footage (product fill, camera motion via phase correlation, focus, burned-in text, HDR), cached per file. `find_windows(product=, min_fill=, min_len=)`. Skips our own `pm_`/`PM_` outputs. |
+| `ads/formats.py` | `TRENDS` (dated, sourced, with a `status` of current / needs shoot / stale) and recipes: `reasons_list`, `reveal_drop`, `rating`, `camera_roll`, `one_liner`. Cuts are timed from `analysis.beats.detect_beats`. |
+
+CLI: `forwrdcut ads-build spec.toml [--only ID]`, `forwrdcut ads-qc DIR --brand KIT`,
+`forwrdcut shots-find DIR --brand KIT --product ID --min-fill 0.35 --min-len 3`.
+Research that feeds formats lives in the trend cache (`cache/trends/meta_reels_*.json`, via `save_trends`).
+
 ## The measure-pass timing pattern (critical for VO + callouts)
 Overlay `start`/`end` are **absolute** seconds, but VO-beat durations depend on the synthesized
 audio. So: **pass 1** — synthesize each VO line (same cache key the timeline uses) and read each

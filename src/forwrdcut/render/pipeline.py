@@ -108,6 +108,7 @@ def _build_caption_track(cfg, dur, tw, th, target_fps, words, caption_text, posi
             words, dur, target_fps, (tw, th), tmpdir, style=style,
             font_path=font, fill=ccfg.get("fill", "#FFFFFF"),
             stroke=ccfg.get("stroke", "#000000"), highlight=ccfg.get("highlight", "#EA6024"),
+            banner_fill=ccfg.get("banner_fill", "#197A7B"),
             position=position, **safe,
         )
         return (["-framerate", str(target_fps), "-i", str(tmpdir / "cap_%05d.png")],
@@ -118,7 +119,8 @@ def _build_caption_track(cfg, dur, tw, th, target_fps, words, caption_text, posi
         render_caption_png(
             caption_text, png, frame_size=(tw, th), style=style,
             font_path=font, fill=ccfg.get("fill", "#FFFFFF"),
-            stroke=ccfg.get("stroke", "#000000"), position=position, **safe,
+            stroke=ccfg.get("stroke", "#000000"), position=position,
+            banner_fill=ccfg.get("banner_fill", "#197A7B"), **safe,
         )
         return (["-loop", "1", "-t", fmt_time(dur), "-i", str(png)], True, "static", tmpdir)
     return ([], False, "none", None)
@@ -203,8 +205,10 @@ def _render_core(clip_path, start, end, out_path, *, cfg, tw, th, target_fps,
         "-c:a", "aac", "-b:a", str(rcfg.get("audio_bitrate", "192k")),
         "-ar", "48000", "-ac", "2", "-dn", "-ignore_unknown",
     ]
-    if sped:
-        args += ["-t", fmt_time(out_dur)]
+    # Cap every segment, not just sped ones: AAC's 1024-sample frames let the audio run past
+    # the last video frame, the concat takes the longer stream, and a 44-cut timeline drifted
+    # 0.7 s late against its overlay times (client edit, Sep 2026).
+    args += ["-t", fmt_time(out_dur)]
     if faststart:
         args += ["-movflags", "+faststart"]
     args += [str(out_path)]

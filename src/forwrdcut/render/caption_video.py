@@ -65,6 +65,7 @@ def build_caption_frames(
     safe_top_frac: float = 0.13,
     safe_bottom_frac: float = 0.24,
     safe_side_frac: float = 0.08,
+    banner_fill: str = "#197A7B",
 ) -> int:
     """Render the caption PNG sequence. Returns the number of frames written."""
     from PIL import Image, ImageDraw
@@ -74,6 +75,7 @@ def build_caption_frames(
     highlight_on = sp["highlight"]
     hstyle = sp.get("highlight_style", "color")   # color | box
     pop_on = sp.get("pop", False)
+    block_fill = sp.get("block_fill", False)
     max_words = sp["max_words"]
 
     out_dir = Path(out_dir)
@@ -118,6 +120,9 @@ def build_caption_frames(
         block_h = step * len(lines) + 2 * pad
         blk = Image.new("RGBA", (block_w, block_h), (0, 0, 0, 0))
         d = ImageDraw.Draw(blk)
+        if block_fill:
+            d.rounded_rectangle([0, 0, block_w - 1, block_h - 1],
+                                radius=max(6, pad // 2), fill=banner_fill)
         y = pad
         for ln in lines:
             lw = sum(ww for _, _, ww in ln) + space_w * (len(ln) - 1)
@@ -130,6 +135,8 @@ def build_caption_frames(
                     d.rounded_rectangle(box, radius=max(6, pad // 2), fill=highlight)
                     d.text((x, y), txt, font=font, fill="#FFFFFF",
                            stroke_width=max(1, stroke_width // 3), stroke_fill=stroke)
+                elif block_fill:
+                    d.text((x, y), txt, font=font, fill=fill)
                 else:
                     d.text((x, y), txt, font=font, fill=(highlight if active else fill),
                            stroke_width=stroke_width, stroke_fill=stroke)

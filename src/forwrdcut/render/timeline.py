@@ -1,13 +1,13 @@
 """Multi-segment timeline assembler: render an Edit Decision Plan to a video.
 
-Each segment is rendered to a normalized, concat-safe intermediate (same res,
-fps, codec, 48k stereo audio), then the segments are concatenated. Stream-copy
-concat is tried first (fast, lossless); on any mismatch it falls back to a
-filter `concat` re-encode.
+Each segment is rendered to a normalized intermediate (same res, fps, codec, 48k stereo
+audio), then the segments are joined with a filter `concat` re-encode that trims every part
+to its video length, so the timeline stays frame-exact against overlay times.
 """
 from __future__ import annotations
 
 import hashlib
+import re
 import json
 import os
 import tempfile
@@ -20,11 +20,54 @@ from ..media.ffprobe import probe
 from .pipeline import render_segment, render_vo_segment
 from ..analysis.emphasis import emphasis_pulses
 
+
+def _video_duration(path) -> float:
+    """Duration of the first video stream (the container duration includes AAC padding)."""
+    import subprocess
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                          "stream=duration", "-of", "csv=p=0", str(path)],
+                         capture_output=True, text=True).stdout.strip().split(",")[0]
+    return float(out) if out else float(probe(path).duration or 0.0)
+
 # one-pass loudnorm can overshoot true peak (QC caught this on its first dogfood render).
 # The trailing limiter caps sample peak at -3 dB: AAC re-encoding adds inter-sample
 # overshoot (measured up to ~1.8 dB on hard-limited mixes), so -3 dB masters keep the
 # encoded deliverable safely under the QC gate.
 _LOUDNORM = "loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.71:level=disabled"
+_LOUDNORM_TARGET = "I=-14:TP=-1.5:LRA=11"
+_LIMITER = "alimiter=limit=0.71:level=disabled"
+
+
+def _loudnorm_af(src: Path) -> str:
+    """Two-pass loudnorm filter for `src`, falling back to the one-pass chain.
+
+    One-pass loudnorm is a *dynamic* normalizer working off a running estimate, so it
+    systematically undershoots the target on dialogue with wide short-term variation -
+    measured 1 to 3 LUFS low across a batch of sketch cuts, which trips the QC gate.
+    Measuring first and feeding the values back lands on target.
+    """
+    import json as _json
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-nostats", "-i", str(src),
+             "-af", f"loudnorm={_LOUDNORM_TARGET}:print_format=json",
+             "-f", "null", "-"],
+            capture_output=True, text=True, timeout=900)
+        tail = proc.stderr[proc.stderr.rfind("{"):proc.stderr.rfind("}") + 1]
+        m = _json.loads(tail)
+        need = ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset")
+        if not all(k in m for k in need):
+            return _LOUDNORM
+        if any(float(m[k]) in (float("inf"), float("-inf")) for k in ("input_i", "input_tp")):
+            return _LOUDNORM          # silent or near-silent input
+        return (f"loudnorm={_LOUDNORM_TARGET}"
+                f":measured_I={m['input_i']}:measured_TP={m['input_tp']}"
+                f":measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}"
+                f":offset={m['target_offset']}:linear=true," + _LIMITER)
+    except Exception:
+        return _LOUDNORM
 
 
 def _resolve_caption(cfg: Config, seg: dict):
@@ -47,6 +90,16 @@ def _resolve_caption(cfg: Config, seg: dict):
 _BRAND_CAPTION: dict[str, str] = {}
 
 
+def set_brand_caption_spellings(mapping: dict[str, str]) -> None:
+    """Populate the display-spelling map from a brand kit's ``[captions].spellings``.
+
+    Keys are matched against the letters-only lowercase form of each transcript word, so
+    ``"acmeapp.ai"`` and ``"Acme,"`` both hit their entry. Called by ``apply_brand``."""
+    _BRAND_CAPTION.clear()
+    for misheard, display in (mapping or {}).items():
+        _BRAND_CAPTION[re.sub(r"[^a-z]", "", str(misheard).lower())] = str(display)
+
+
 def _normalize_caption_words(words: list[dict]) -> list[dict]:
     """Re-join hyphenated compounds Whisper splits ("30"+"-day" -> "30-day") and apply any
     brand display spellings from ``_BRAND_CAPTION`` (empty by default)."""
@@ -62,8 +115,11 @@ def _normalize_caption_words(words: list[dict]) -> list[dict]:
     out, i, n = [], 0, len(words)
     while i < n:
         w = words[i]
-        if i + 1 < n and words[i + 1]["word"].startswith("-") and any(c.isalnum() for c in words[i + 1]["word"]):
-            # rejoin hyphenated compounds Whisper splits: "30"+"-day", "money"+"-back", "pre"+"-order"
+        if i + 1 < n and words[i + 1]["word"][:1] in ("-", ".", ",") and any(c.isalnum() for c in words[i + 1]["word"]):
+            # rejoin what Whisper splits: hyphenated compounds ("30"+"-day", "money"+"-back",
+            # "pre"+"-order"), domain suffixes ("acmeapp"+".ai", "example"+".com"), and
+            # thousands groups ("$10"+",385" -> "$10,385"). Only a *leading* punctuation mark
+            # on the next token triggers a join, so ordinary words are never merged.
             nxt = words[i + 1]
             out.append({"start": w["start"], "end": nxt["end"], "word": w["word"] + nxt["word"]})
             i += 2
@@ -80,7 +136,7 @@ def _normalize_caption_words(words: list[dict]) -> list[dict]:
     return fixed
 
 
-_SEG_CACHE_SALT = "seg-v2"      # bump when segment-render semantics change
+_SEG_CACHE_SALT = "seg-v3"      # bump when segment-render semantics change (v3: -t cap)
 
 
 # Stream properties that must match across parts for `concat -c copy` to be lossless.
@@ -157,6 +213,19 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
     for k in ("safe_top_frac", "safe_bottom_frac", "safe_side_frac"):
         if k in edp.get("captions", {}):
             cfg.data.setdefault("captions", {})[k] = float(edp["captions"][k])
+    # per-EDP caption colours (e.g. the "banner" style's bar colour)
+    for k in ("banner_fill", "fill", "stroke", "highlight"):
+        if k in edp.get("captions", {}):
+            cfg.data.setdefault("captions", {})[k] = str(edp["captions"][k])
+    # per-EDP grade (ENGINE.md documents `grade` as an EDP key, but it was only ever read
+    # from config): false/"none" turns the colour grade off for raw looks; a dict replaces
+    # the config block. Applied before any segment key is hashed, so the cache stays honest.
+    if "grade" in edp:
+        g = edp["grade"]
+        if g in (False, None, "none", "off"):
+            cfg.data["grade"] = {"enabled": False}
+        elif isinstance(g, dict):
+            cfg.data["grade"] = g
     mute = bool(edp.get("mute_source", False))
 
     voice = edp.get("voice")
@@ -243,7 +312,15 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
                            emphasis_times=job["emph"], speed=job["speed"], shake=job["shake"])
         work.replace(dest)
 
-    todo = [j for j in jobs if not (use_cache and _dest(j).exists())]
+    # identical beats (same source/in/out/look) share one cache entry: render each once, or parallel
+    # workers race on the same .part file
+    todo, queued = [], set()
+    for j in jobs:
+        d = _dest(j)
+        if use_cache and (d.exists() or d in queued):
+            continue
+        queued.add(d)
+        todo.append(j)
     workers = max(1, int(rcfg.get("parallel_workers", min(4, (os.cpu_count() or 2) // 2))))
     if len(todo) > 1 and workers > 1:
         from concurrent.futures import ThreadPoolExecutor
@@ -299,7 +376,17 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
             for p in parts:
                 args += ["-i", str(p)]
             n = len(parts)
-            fc = "".join(f"[{i}:v][{i}:a]" for i in range(n)) + f"concat=n={n}:v=1:a=1[v][a]"
+            # Trim both streams of every part to that part's VIDEO length. Each part's AAC
+            # carries priming + frame padding, so untrimmed parts are each ~15-40 ms long on
+            # audio and the timeline drifts late against overlay times, one cut at a time.
+            trims = []
+            for i, p in enumerate(parts):
+                d = _video_duration(p)
+                trims.append(f"[{i}:v]trim=duration={d:.4f},setpts=PTS-STARTPTS[v{i}];"
+                             f"[{i}:a]atrim=duration={d:.4f},asetpts=PTS-STARTPTS,"
+                             f"apad=whole_dur={d:.4f}[a{i}];")
+            fc = ("".join(trims) + "".join(f"[v{i}][a{i}]" for i in range(n))
+                  + f"concat=n={n}:v=1:a=1[v][a]")
             args += ["-filter_complex", fc, "-map", "[v]", "-map", "[a]",
                      "-c:v", venc, "-b:v", str(rcfg.get("video_bitrate", "10M")),
                      "-pix_fmt", "yuv420p", "-r", str(fps),
@@ -307,25 +394,10 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
                      "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(concat_out)]
             run(args, desc="concat (filter re-encode)")
 
-        # `-c copy` concat is only valid when every part shares the same stream params.
-        # When they differ (classically pix_fmt yuvj420p from a JPEG still vs yuv420p from
-        # a video) ffmpeg does NOT fail — it silently drops beats and holds a frame. So we
-        # check compatibility up front, and verify the assembled duration afterwards.
-        if not _parts_are_concat_compatible(parts):
-            _reencode_concat()
-        else:
-            listfile = tmpdir / "list.txt"
-            listfile.write_text("".join(f"file '{p.as_posix()}'\n" for p in parts))
-            expected = sum(probe(p).duration or 0.0 for p in parts)
-            try:
-                run(["-f", "concat", "-safe", "0", "-i", str(listfile), "-c", "copy",
-                     "-movflags", "+faststart", str(concat_out)], desc="concat (copy)")
-                got = probe(concat_out).duration or 0.0
-                if abs(got - expected) > 0.15:
-                    raise RuntimeError(
-                        f"copy-concat lost content: {got:.2f}s vs expected {expected:.2f}s")
-            except Exception:
-                _reencode_concat()
+        # Always the trimmed re-encode concat. `-c copy` concat drops beats silently when parts
+        # differ in stream params, and even when they match it keeps each part's AAC priming
+        # and padding, which put a 44-cut timeline 0.7 s late against its overlays.
+        _reencode_concat()
 
     current = concat_out
     if do_sfx:
@@ -357,7 +429,7 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
     if not look and not specs:
         # nothing visual to burn: stream-copy video; loudnorm (audio-only encode) if asked
         if loudnorm:
-            run(["-i", str(current), "-af", _LOUDNORM,
+            run(["-i", str(current), "-af", _loudnorm_af(current),
                  "-c:v", "copy", "-c:a", "aac", "-b:a", str(rcfg.get("audio_bitrate", "192k")),
                  "-shortest", "-movflags", "+faststart", str(out_path)],
                 desc="finalize + loudnorm")
@@ -406,7 +478,7 @@ def render_timeline(edp: dict, out_path: str | Path, cfg: Config | None = None,
         run(args, desc="finish (look+overlays, video pass)")
         if loudnorm:
             # audio-only encode: video copied byte-for-byte, so the timeline is untouched
-            run(["-i", str(vpass), "-af", _LOUDNORM, "-c:v", "copy",
+            run(["-i", str(vpass), "-af", _loudnorm_af(vpass), "-c:v", "copy",
                  "-c:a", "aac", "-b:a", str(rcfg.get("audio_bitrate", "192k")),
                  "-movflags", "+faststart", str(out_path)], desc="loudnorm (audio pass)")
 

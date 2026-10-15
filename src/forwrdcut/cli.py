@@ -428,6 +428,58 @@ def cmd_slice(args) -> int:
     return 0
 
 
+def cmd_ads_build(args) -> int:
+    from .ads.build import build_batch, load_spec
+    from .ads.qc import qc_batch
+    from .strategy.brand import load_brand
+
+    cfg = load_config(args.config)
+    made = build_batch(args.spec, cfg, only=args.only, variants=not args.no_variants)
+    print(f"built {len(made)} files")
+    if args.no_qc:
+        return 0
+    b = load_spec(args.spec)["batch"]
+    return _print_ads_qc(qc_batch(b["out_dir"], load_brand(cfg, b["brand"]) if b.get("brand") else {}))
+
+
+def cmd_ads_qc(args) -> int:
+    from .ads.qc import qc_batch
+    from .strategy.brand import load_brand
+
+    cfg = load_config(args.config)
+    return _print_ads_qc(qc_batch(args.dir, load_brand(cfg, args.brand) if args.brand else {}))
+
+
+def cmd_shots_find(args) -> int:
+    from .ads.shots import find_windows, index_dir
+    from .strategy.brand import load_brand
+
+    cfg = load_config(args.config)
+    kit = load_brand(cfg, args.brand)
+    idx = index_dir(args.dir, kit, cfg.cache_dir / "shots")
+    hits = find_windows(idx, product=args.product, min_fill=args.min_fill, min_len=args.min_len,
+                        max_motion=args.max_motion)
+    print(f"{len(idx)} clips indexed, {len(hits)} matching windows")
+    for h in hits:
+        tag = " HDR" if h["hdr"] else ""
+        print(f"  {Path(h['file']).name:<28} {h['start']:6.2f}-{h['end']:6.2f}s  fill {h['fill']:.0%}  "
+              f"motion {h['motion']:4.1f}  {h['size']}{tag}")
+    return 0
+
+
+def _print_ads_qc(rep: dict) -> int:
+    s = rep["summary"]
+    print(f"QC  pass {s['PASS']}  warn {s['WARN']}  fail {s['FAIL']}")
+    for r in rep["results"]:
+        if r["status"] != "PASS":
+            print(f"  {r['status']:4s} {Path(r['file']).name}")
+            for m in r["fails"] + r["warns"]:
+                print(f"         - {m}")
+    for sh in rep["sheets"]:
+        print(f"  sheet: {sh}")
+    return 1 if s["FAIL"] else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="forwrdcut", description="Local AI video editor")
     p.add_argument("--config", default=None, help="path to config.toml")
@@ -546,6 +598,27 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("music", help="list the licensed music library (BPM/mood detected)")
     sp.add_argument("--rescan", action="store_true", help="ignore the metadata cache")
     sp.set_defaults(func=cmd_music)
+
+    sp = sub.add_parser("ads-build", help="build a batch of Meta/IG ads from a TOML spec, then QC it")
+    sp.add_argument("spec")
+    sp.add_argument("--only", action="append", help="ad id to build (repeatable)")
+    sp.add_argument("--no-variants", action="store_true", help="skip the text variants")
+    sp.add_argument("--no-qc", action="store_true")
+    sp.set_defaults(func=cmd_ads_build)
+
+    sp = sub.add_parser("shots-find", help="index silent product footage and find big, steady shots")
+    sp.add_argument("dir")
+    sp.add_argument("--brand", required=True, help="brand kit with [products] colour signatures")
+    sp.add_argument("--product", default=None, help="product id from the kit (default: any)")
+    sp.add_argument("--min-fill", type=float, default=0.3, help="share of frame height (0-1)")
+    sp.add_argument("--min-len", type=float, default=2.0, help="seconds")
+    sp.add_argument("--max-motion", type=float, default=25.0, help="camera movement, %% of width/sec")
+    sp.set_defaults(func=cmd_shots_find)
+
+    sp = sub.add_parser("ads-qc", help="QC a folder of ads: specs, safe zones, text contrast, frame one")
+    sp.add_argument("dir")
+    sp.add_argument("--brand", default=None, help="brand kit name (copy lint + product checks)")
+    sp.set_defaults(func=cmd_ads_qc)
 
     sp = sub.add_parser("qc", help="QC a rendered video: loudness, stream match, freezes, sheet")
     sp.add_argument("--file", required=True)

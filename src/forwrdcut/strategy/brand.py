@@ -190,3 +190,7 @@ def apply_brand(cfg: Config, kit: dict) -> None:
     hl = kit.get("style", {}).get("highlight")
     if hl:
         cfg.data.setdefault("captions", {})["highlight"] = hl
+    spellings = kit.get("captions", {}).get("spellings")
+    if spellings:
+        from ..render.timeline import set_brand_caption_spellings
+        set_brand_caption_spellings(spellings)

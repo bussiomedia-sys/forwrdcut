@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Paid-social ads layer (`forwrdcut.ads`)
+- **`forwrdcut ads-build spec.toml`** builds a batch of Meta/IG ads (9:16, 4:5, 1:1) from a short
+  TOML spec instead of a one-off script: beats, native in-app text styles, music bed, variants.
+- **`forwrdcut ads-qc DIR`** gates delivery: specs, Meta safe zones, text contrast, orphan words,
+  engagement bait, brand copy, product size in frame one, near-duplicate openings; review sheet.
+- **`forwrdcut shots-find DIR`** indexes silent product footage (fill, motion, focus, burned-in
+  text, HDR) to find big, steady product moments.
+- Trend formats (`ads/formats.py`) with dated sources; product-aware framing per placement.
+- `tools/`: `hdr2sdr.swift` (Apple-tonemapper HDR→SDR) and `two_shot_crops.py` (punch-in crops
+  for a locked-off two-shot).
+
+### Timeline + captions
+- Every segment is trimmed to its video length, so long timelines no longer drift late against
+  overlay times (AAC padding). Two-pass loudnorm; per-EDP `grade` and caption colours.
+- New `banner` caption style and `none` emphasis; brand-kit caption spellings
+  (`[captions].spellings`); Whisper splits of domains and thousands groups are rejoined.
+
 The "social-ad polish" pass — learnings from a real Meta pre-order campaign, generalized so
 every edit benefits.
 

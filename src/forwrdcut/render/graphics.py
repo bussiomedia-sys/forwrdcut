@@ -114,7 +114,7 @@ def _stars(rating, text, fw, cfg, font_p):
 
 
 def _callout(text, fw, cfg, font_p, *, size_frac=0.055, max_width_frac=0.86,
-             emphasis_style="color", upper=True, weight="Black"):
+             emphasis_style="color", upper=True, weight="Black", fill="#FFFFFF"):
     """Big bold ad callout headline: all-caps Inter Black, white with one optional
     orange 'hot' word (mark it *like_this*), heavy black stroke for legibility over
     footage, word-wrapped and centered. Returns a tight PNG (positioned by caller).
@@ -130,7 +130,9 @@ def _callout(text, fw, cfg, font_p, *, size_frac=0.055, max_width_frac=0.86,
         # A word is the orange "hot" word if it carries emphasis asterisks. Detect by
         # presence of '*' (not exact *WORD* bracketing) so punctuation glued to the marker
         # — "*DID*." , "(*NEW*)" — still resolves, and strip every '*' from what we draw.
-        hot = "*" in w
+        # "none" is an editorial/on-brand style: no orange word, no pill — every word in one
+        # refined color (`fill`). Reads premium instead of like an automated caption.
+        hot = "*" in w and emphasis_style != "none"
         toks.append((w.replace("*", ""), hot))
     tmp = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     space = tmp.textlength(" ", font=font)
@@ -177,8 +179,8 @@ def _callout(text, fw, cfg, font_p, *, size_frac=0.055, max_width_frac=0.86,
                 d.text((x, y), word, font=font, fill="#FFFFFF",
                        stroke_width=stroke, stroke_fill=orange)
             else:
-                d.text((x, y), word, font=font, fill=(orange if hot else "#FFFFFF"),
-                       stroke_width=stroke, stroke_fill=(orange if hot else "#FFFFFF"))
+                d.text((x, y), word, font=font, fill=(orange if hot else fill),
+                       stroke_width=stroke, stroke_fill=(orange if hot else fill))
             x += ww + space
         y += lh
     return _with_shadow(img, blur=max(3, size // 12), alpha=135,
@@ -300,7 +302,8 @@ def build_overlay_specs(overlays, frame_size, total_dur, cfg, tmpdir):
                            max_width_frac=float(ov.get("max_width_frac", 0.86)),
                            emphasis_style=ov.get("emphasis_style", "color"),
                            upper=ov.get("upper", True),
-                           weight=ov.get("weight", "Black"))
+                           weight=ov.get("weight", "Black"),
+                           fill=ov.get("fill", "#FFFFFF"))
         else:
             continue
         gw, gh = img.size

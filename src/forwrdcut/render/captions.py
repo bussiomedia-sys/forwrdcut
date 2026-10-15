@@ -29,6 +29,9 @@ CAPTION_STYLES: dict[str, dict] = {
     "bold-pop":      {"font_scale": 0.072, "stroke_div": 10, "uppercase": True,  "highlight": True,  "highlight_style": "color", "pop": True,  "max_words": 3, "weight": "Black"},
     "karaoke":       {"font_scale": 0.064, "stroke_div": 11, "uppercase": True,  "highlight": True,  "highlight_style": "color", "pop": True,  "max_words": 5, "weight": "ExtraBold"},
     "clean-minimal": {"font_scale": 0.050, "stroke_div": 16, "uppercase": False, "highlight": False, "highlight_style": "color", "pop": False, "max_words": 4, "weight": "SemiBold"},
+    # one solid bar behind the whole phrase, sentence case, no per-word highlight - the
+    # broadcast-style lower third. Bar colour comes from [captions] banner_fill.
+    "banner":        {"font_scale": 0.043, "stroke_div": 24, "uppercase": False, "highlight": False, "highlight_style": "color", "pop": False, "max_words": 9, "weight": "SemiBold", "block_fill": True},
 }
 
 
@@ -92,6 +95,7 @@ def render_caption_png(
     safe_bottom_frac: float = 0.24,
     safe_side_frac: float = 0.08,
     line_spacing: float = 1.14,
+    banner_fill: str = "#197A7B",
 ) -> Path:
     """Render a styled caption to a transparent PNG sized to *frame_size*,
     placed inside the IG-safe band (clear of top/bottom/side platform UI)."""
@@ -130,14 +134,26 @@ def render_caption_png(
         y = bot_lim - block_h
     y = int(max(top_lim, min(y, bot_lim - block_h)))
 
+    # "banner" style: one solid bar behind the whole block, matching the word-synced captions
+    block_fill = sp.get("block_fill", False)
+    if block_fill:
+        pad = max(8, size // 6)
+        widest = max(draw.textbbox((0, 0), ln, font=font)[2] for ln in lines)
+        x0 = (fw - widest) // 2 - pad
+        draw.rounded_rectangle([x0, y - pad // 2, x0 + widest + 2 * pad, y + block_h + pad // 2],
+                               radius=max(6, pad // 2), fill=banner_fill)
+
     for line in lines:
         bbox = draw.textbbox((0, 0), line, font=font, stroke_width=stroke_width)
         w = bbox[2] - bbox[0]
         x = (fw - w) // 2 - bbox[0]
-        draw.text(
-            (x, y), line, font=font, fill=fill,
-            stroke_width=stroke_width, stroke_fill=stroke,
-        )
+        if block_fill:
+            draw.text((x, y), line, font=font, fill=fill)
+        else:
+            draw.text(
+                (x, y), line, font=font, fill=fill,
+                stroke_width=stroke_width, stroke_fill=stroke,
+            )
         y += step
 
     img.save(out_path)
